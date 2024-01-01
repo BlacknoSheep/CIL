@@ -9,7 +9,7 @@
     "convnet_type": "resnet18",
     "device": ["0"],
     "seed": [1993],
-    "init_epochs": 200,
+    "init_epochs": 250,
     "init_lr" : 0.1,
     "init_weight_decay" : 5e-4,
     "epochs" : 50,
@@ -18,7 +18,6 @@
     "batch_size" : 128,
     "num_workers" : 8,
     "T" : 2,
-    "n_per_class": 500,
     "momentum": 0.99,
     "generator": "noise"
 }
