@@ -17,7 +17,9 @@
     "weight_decay" : 5e-4,
     "batch_size" : 128,
     "num_workers" : 8,
+    "pin_memory" : true,
     "T" : 2,
+    "pre_norm": true,
     "momentum": 0.99,
     "generator": "noise"
 }

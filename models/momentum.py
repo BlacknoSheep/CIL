@@ -19,13 +19,14 @@ class Momentum(BaseLearner):
     def __init__(self, args):
         super().__init__(args)
         self.args = args
-        self._network = HeadNet(args, False, FcHead(512, self.args["init_cls"], pre_norm=True))
+        self._network = HeadNet(args, False,
+                                FcHead(512, self.args["init_cls"], pre_norm=self.args["pre_norm"]))
         self._means = None
         self._stds = None
         self._shot = None
         self._model_path = "{}_{}_{}_{}_{}".format(self.args["prefix"], self.args["model_name"],
-                                                      self.args["convnet_type"], self.args["dataset"],
-                                                      self.args["init_cls"])
+                                                   self.args["convnet_type"], self.args["dataset"],
+                                                   self.args["init_cls"])
 
     @property
     def _new_classes(self):
@@ -49,7 +50,7 @@ class Momentum(BaseLearner):
         elif 'imagenet' in dataset_name:
             self.data_manager._train_trsf = [
                 # transforms.RandomResizedCrop(224, scale=(0.5, 1.0)), # https://github.com/pytorch/examples/issues/355
-                transforms.RandomResizedCrop(224), # The default scale (0.08, 1.0) is better for incremental learning
+                transforms.RandomResizedCrop(224),  # The default scale (0.08, 1.0) is better for incremental learning
                 transforms.RandomHorizontalFlip(),
                 # transforms.ColorJitter(brightness=63 / 255), # ColorJitter will lower the accuracy for IL
                 transforms.AutoAugment(policy=transforms.AutoAugmentPolicy.IMAGENET),
@@ -74,14 +75,14 @@ class Momentum(BaseLearner):
         )
         self.train_loader = DataLoader(
             train_dataset, batch_size=self.args["batch_size"], shuffle=True, num_workers=self.args["num_workers"],
-            pin_memory=True
+            pin_memory=self.args["pin_memory"]
         )
         test_dataset = data_manager.get_dataset(
             np.arange(0, self._total_classes), source="test", mode="test"
         )
         self.test_loader = DataLoader(
             test_dataset, batch_size=self.args["batch_size"], shuffle=False, num_workers=self.args["num_workers"],
-            pin_memory=True
+            pin_memory=self.args["pin_memory"]
         )
 
         if len(self._multiple_gpus) > 1:
@@ -185,8 +186,11 @@ class Momentum(BaseLearner):
         test_dataset = self._build_feature_dataset(original_test_loader, mode="test")
         test_loader = DataLoader(
             test_dataset, batch_size=self.args["batch_size"], shuffle=False, num_workers=self.args["num_workers"],
-            pin_memory=True
+            pin_memory=self.args["pin_memory"]
         )
+
+        # momentum update after each task
+        # old_head = copy.deepcopy(self._network.head)
 
         prog_bar = tqdm(range(epochs))
         for _, epoch in enumerate(prog_bar):
@@ -194,9 +198,10 @@ class Momentum(BaseLearner):
             train_dataset = self._build_feature_dataset(original_train_loader, mode="train")
             train_loader = DataLoader(
                 train_dataset, batch_size=self.args["batch_size"], shuffle=True, num_workers=self.args["num_workers"],
-                pin_memory=True
+                pin_memory=self.args["pin_memory"]
             )
 
+            # momentum update after each epoch
             old_head = copy.deepcopy(self._network.head)
 
             self._network.eval()
@@ -205,6 +210,9 @@ class Momentum(BaseLearner):
             correct, total = 0, 0
             correct_new, total_new = 0, 0
             for i, (_, inputs, targets) in enumerate(train_loader):
+                # momentum update after each step
+                # old_head = copy.deepcopy(self._network.head)
+
                 inputs, targets = inputs.to(self._device), targets.to(self._device)
                 logits = self._network.head(inputs)["logits"]
                 loss = F.cross_entropy(logits, targets)
@@ -223,7 +231,10 @@ class Momentum(BaseLearner):
                 correct_new += torch.sum(corrects[new_mask]).item()
                 total_new += torch.sum(new_mask).item()
 
-            # momentum update head
+                # momentum update after each step
+                # self._momentum_update_head(old_head, momentum=self.args["momentum"])
+
+            # momentum update after each epoch
             self._momentum_update_head(old_head, momentum=self.args["momentum"])
 
             scheduler.step()
@@ -252,6 +263,9 @@ class Momentum(BaseLearner):
             prog_bar.set_description(info)
             logging.info(info)
 
+        # momentum update after each task
+        # self._momentum_update_head(old_head, momentum=self.args["momentum"])
+
     def _extract_vectors(self, loader):
         self._network.convnet.eval()
         vectors, targets = [], []
@@ -273,7 +287,7 @@ class Momentum(BaseLearner):
                                                             source='train',
                                                             mode='test')
                 idx_loader = DataLoader(idx_dataset, batch_size=self.args["batch_size"], shuffle=False,
-                                        num_workers=self.args["num_workers"], pin_memory=True)
+                                        num_workers=self.args["num_workers"], pin_memory=self.args["pin_memory"])
                 vectors, _ = self._extract_vectors(idx_loader)
                 class_mean = np.mean(vectors, axis=0, keepdims=True)  # [1 * feature_dim]
                 class_std = np.std(vectors, axis=0, keepdims=True)  # [1 * feature_dim]
@@ -395,20 +409,20 @@ class Momentum(BaseLearner):
         return DummyDataset(torch.from_numpy(features), torch.from_numpy(targets))
 
     def _generate_by_oversampling(self, n_per_class):
-        features = self._means[:self._known_classes] # e.g: [0,1,2]
-        features = np.repeat(features, n_per_class, axis=0) # e.g: [0,0,1,1,2,2]
-        labels = np.arange(self._known_classes) # e.g: [0,1,2]
-        labels = np.repeat(labels, n_per_class, axis=0) # e.g: [0,0,1,1,2,2]
+        features = self._means[:self._known_classes]  # e.g: [0,1,2]
+        features = np.repeat(features, n_per_class, axis=0)  # e.g: [0,0,1,1,2,2]
+        labels = np.arange(self._known_classes)  # e.g: [0,1,2]
+        labels = np.repeat(labels, n_per_class, axis=0)  # e.g: [0,0,1,1,2,2]
         return features, labels
 
     def _generate_by_noise(self, n_per_class):
-        features = self._means[:self._known_classes] # e.g: [0,1,2]
-        stds = self._stds[:self._known_classes] # e.g: [0,1,2]
+        features = self._means[:self._known_classes]  # e.g: [0,1,2]
+        stds = self._stds[:self._known_classes]  # e.g: [0,1,2]
         # sample from normal (Gaussian) distribution
-        features = np.random.normal(features, stds, size=(n_per_class, *features.shape)) # e.g: [[0,1,2],[0,1,2]]
-        features = np.concatenate(features, axis=0) # e.g: [0,1,2,0,1,2]
-        labels = np.arange(self._known_classes) # e.g: [0,1,2]
-        labels = np.tile(labels, n_per_class) # e.g: [0,1,2,0,1,2]
+        features = np.random.normal(features, stds, size=(n_per_class, *features.shape))  # e.g: [[0,1,2],[0,1,2]]
+        features = np.concatenate(features, axis=0)  # e.g: [0,1,2,0,1,2]
+        labels = np.arange(self._known_classes)  # e.g: [0,1,2]
+        labels = np.tile(labels, n_per_class)  # e.g: [0,1,2,0,1,2]
         return features, labels
 
     def _generate_by_translation(self, refer_features, refer_labels, n_per_class):
