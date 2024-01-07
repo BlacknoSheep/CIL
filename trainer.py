@@ -65,60 +65,23 @@ def _train(args):
         model.incremental_train(data_manager)
         accy = model.eval_task()
         cnn_accy = accy.get("cnn_accy", None)
-        nme_accy = accy.get("nme_accy", None)
         ncm_accy = accy.get("ncm_accy", None)
         model.after_task()
 
-        if nme_accy is not None:
-            logging.info("CNN: {}".format(cnn_accy["grouped"]))
-            logging.info("NME: {}".format(nme_accy["grouped"]))
-
-            cnn_curve["top1"].append(cnn_accy["top1"])
-            cnn_curve["top5"].append(cnn_accy["top5"])
-
-            nme_curve["top1"].append(nme_accy["top1"])
-            nme_curve["top5"].append(nme_accy["top5"])
-
-            logging.info("CNN top1 curve: {}".format(cnn_curve["top1"]))
-            logging.info("CNN top5 curve: {}".format(cnn_curve["top5"]))
-            logging.info("NME top1 curve: {}".format(nme_curve["top1"]))
-            logging.info("NME top5 curve: {}".format(nme_curve["top5"]))
-
-            print('Average Accuracy (CNN):', sum(cnn_curve["top1"])/len(cnn_curve["top1"]))
-            print('Average Accuracy (NME):', sum(nme_curve["top1"])/len(nme_curve["top1"]))
-
-            logging.info("Average Accuracy (CNN): {}".format(sum(cnn_curve["top1"])/len(cnn_curve["top1"])))
-            logging.info("Average Accuracy (NME): {}\n".format(sum(nme_curve["top1"])/len(nme_curve["top1"])))
         if ncm_accy is not None:
-            logging.info("CNN: {}".format(cnn_accy["grouped"]))
             logging.info("NCM: {}".format(ncm_accy["grouped"]))
-
-            cnn_curve["top1"].append(cnn_accy["top1"])
-            cnn_curve["top5"].append(cnn_accy["top5"])
-
             ncm_curve["top1"].append(ncm_accy["top1"])
             ncm_curve["top5"].append(ncm_accy["top5"])
-
-            logging.info("CNN top1 curve: {}".format(cnn_curve["top1"]))
-            logging.info("CNN top5 curve: {}".format(cnn_curve["top5"]))
             logging.info("NCM top1 curve: {}".format(ncm_curve["top1"]))
             logging.info("NCM top5 curve: {}".format(ncm_curve["top5"]))
-
-            print('Average Accuracy (CNN):', sum(cnn_curve["top1"]) / len(cnn_curve["top1"]))
             print('Average Accuracy (NCM):', sum(ncm_curve["top1"]) / len(ncm_curve["top1"]))
-
-            logging.info("Average Accuracy (CNN): {}".format(sum(cnn_curve["top1"]) / len(cnn_curve["top1"])))
             logging.info("Average Accuracy (NCM): {}\n".format(sum(ncm_curve["top1"]) / len(ncm_curve["top1"])))
-        if cnn_accy is not None and nme_accy is None and ncm_accy is None:
-            # logging.info("No NME accuracy.")
+        if cnn_accy is not None:
             logging.info("CNN: {}".format(cnn_accy["grouped"]))
-
             cnn_curve["top1"].append(cnn_accy["top1"])
             cnn_curve["top5"].append(cnn_accy["top5"])
-
             logging.info("CNN top1 curve: {}".format(cnn_curve["top1"]))
             logging.info("CNN top5 curve: {}".format(cnn_curve["top5"]))
-
             print('Average Accuracy (CNN):', sum(cnn_curve["top1"])/len(cnn_curve["top1"]))
             logging.info("Average Accuracy (CNN): {}\n".format(sum(cnn_curve["top1"])/len(cnn_curve["top1"])))
     

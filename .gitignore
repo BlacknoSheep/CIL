@@ -1,3 +1,6 @@
 data/
 __pycache__/
 logs/
+*.pkl
+.idea/
+saved/

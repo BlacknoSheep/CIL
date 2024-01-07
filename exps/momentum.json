@@ -1,5 +1,5 @@
 {
-    "prefix": "train",
+    "prefix": "e250+50",
     "dataset": "cifar100",
     "memory_size": 0,
     "shuffle": true,
@@ -7,6 +7,7 @@
     "increment": 10,
     "model_name": "momentum",
     "convnet_type": "resnet18",
+    "initial_model_path": null,
     "device": ["0"],
     "seed": [1993],
     "init_epochs": 250,
