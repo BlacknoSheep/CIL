@@ -454,6 +454,7 @@ class Momentum(BaseLearner):
     def _layernorm(self, x, eps=1e-05):
         """
         :param x: Tensor of [n, dim]
+        :param eps: same as torch.nn.LayerNorm
         """
         mean = torch.mean(x, dim=1, keepdim=True)
         std = torch.std(x, dim=1, keepdim=True)
