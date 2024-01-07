@@ -34,6 +34,17 @@ class Momentum(BaseLearner):
     def after_task(self):
         self._known_classes = self._total_classes
 
+        # # save last predicts
+        # y_pred, y_true = self._eval_cnn(self._network, self.test_loader)
+        # y_pred = y_pred[:, 0]  # [N]
+        # predicts = np.stack((y_pred, y_true), axis=1)  # [N, 2]
+        # np.save(os.path.join("./saved", self._saved_prefix + "_predicts.npy"), predicts)
+        # # save last ncm_cosine predicts
+        # y_pred, y_true = self._eval_ncm(self._network.convnet, self.test_loader)
+        # y_pred = y_pred[:, 0]  # [N]
+        # predicts = np.stack((y_pred, y_true), axis=1)  # [N, 2]
+        # np.save(os.path.join("./saved", self._saved_prefix + "_predicts_ncm.npy"), predicts)
+
         # save the final model, means and stds
         self._save_all()
 
