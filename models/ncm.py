@@ -36,6 +36,12 @@ class NCM(BaseLearner):
     def after_task(self):
         self._known_classes = self._total_classes
 
+        # save last ncm_cosine predicts
+        # y_pred, y_true = self._eval_ncm(self._network.convnet, self.test_loader, mode=self.args["mode"])
+        # y_pred = y_pred[:, 0]  # [N]
+        # predicts = np.stack((y_pred, y_true), axis=1)  # [N, 2]
+        # np.save(os.path.join("./saved", self._saved_prefix + "_{}_predicts.npy".format(self.args["mode"])), predicts)
+
         # save the final model, means and stds
         self._save_all()
 
