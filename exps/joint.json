@@ -1,5 +1,5 @@
 {
-    "prefix": "train",
+    "prefix": "e250+50",
     "dataset": "cifar100",
     "memory_size": 0,
     "shuffle": true,
@@ -7,16 +7,19 @@
     "increment": 10,
     "model_name": "joint",
     "convnet_type": "resnet18",
-    "freeze_convnet": true,
+    "initial_model_path": null,
     "device": ["0"],
     "seed": [1993],
-    "init_epochs": 200,
+    "init_epochs": 250,
     "init_lr" : 0.1,
     "init_weight_decay" : 5e-4,
     "epochs" : 50,
     "lr" : 0.05,
-    "batch_size" : 128,
     "weight_decay" : 5e-4,
+    "batch_size" : 128,
     "num_workers" : 8,
-    "T" : 2
+    "pin_memory" : true,
+    "T" : 2,
+    "pre_norm": false,
+    "freeze_convnet": true
 }

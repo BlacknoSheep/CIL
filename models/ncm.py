@@ -1,17 +1,17 @@
 import logging
 import numpy as np
 import torch
-import copy
 import os
 from torch import nn
 from tqdm import tqdm
 from torch import optim
 from torch.nn import functional as F
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
 from utils.inc_net import HeadNet, FcHead
 from models.base import BaseLearner
 from utils.toolkit import tensor2numpy
 from torchvision import transforms
+
 
 # mode: cosine or euclidean
 
@@ -24,7 +24,6 @@ class NCM(BaseLearner):
                                 FcHead(512, self.args["init_cls"], pre_norm=self.args["pre_norm"]))
         self._means = None
         self._stds = None
-        self._shot = None
         self._saved_prefix = "{}_{}_{}_{}_{}".format(self.args["prefix"], self.args["model_name"],
                                                      self.args["convnet_type"], self.args["dataset"],
                                                      self.args["init_cls"])
