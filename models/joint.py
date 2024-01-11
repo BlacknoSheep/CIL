@@ -1,13 +1,12 @@
 import logging
 import numpy as np
 import torch
-import copy
 import os
 from torch import nn
 from tqdm import tqdm
 from torch import optim
 from torch.nn import functional as F
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
 from utils.inc_net import HeadNet, FcHead
 from models.base import BaseLearner
 from utils.toolkit import tensor2numpy
