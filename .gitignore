@@ -4,3 +4,4 @@ logs/
 *.pkl
 .idea/
 saved/
+.trash/
