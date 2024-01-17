@@ -105,7 +105,7 @@ class Momentum(BaseLearner):
             self._network = self._network.module
 
     def _train(self, train_loader, test_loader):
-        self._network.to(self._device)
+        self._network.to(self._device, non_blocking=True)
         if self._cur_task == 0:
             if self.args["initial_model_path"] is not None:
                 logging.info("Load initial trained model from {}".format(self.args["initial_model_path"]))
@@ -122,7 +122,7 @@ class Momentum(BaseLearner):
                 self._init_train(train_loader, test_loader, optimizer, scheduler, epochs=self.args["init_epochs"])
                 logging.info("Save initial trained model to {}".format(self._saved_prefix + "_0.pkl"))
                 self.save_checkpoint(self._saved_prefix)
-                self._network.to(self._device)
+                self._network.to(self._device, non_blocking=True)
 
             # init_acc = self._compute_accuracy(self._network, test_loader)
             # logging.info("Initial accy: {:.2f}".format(init_acc))
@@ -161,12 +161,12 @@ class Momentum(BaseLearner):
                 optimizer.step()
                 losses += loss.item()
 
-                _, preds = torch.max(logits, dim=1)
-                correct += preds.eq(targets.expand_as(preds)).cpu().sum()
+                preds = torch.max(logits, dim=1)[1]
+                correct += torch.sum(torch.eq(preds, targets)).item()
                 total += len(targets)
 
             scheduler.step()
-            train_acc = np.around(tensor2numpy(correct) * 100 / total, decimals=2)
+            train_acc = np.around(correct * 100 / total, decimals=2)
 
             if epoch % 5 == 0:
                 test_acc = self._compute_accuracy(self._network, test_loader)
@@ -235,13 +235,13 @@ class Momentum(BaseLearner):
                 optimizer.step()
                 losses += loss.item()
 
-                _, preds = torch.max(logits, dim=1)
-                corrects = torch.eq(preds, targets)
-                correct += torch.sum(corrects).item()
+                preds = torch.max(logits, dim=1)[1]
+                result = torch.eq(preds, targets)
+                correct += torch.sum(result).item()
                 total += len(targets)
                 # accuracy of new classes
                 new_mask = targets >= self._known_classes
-                correct_new += torch.sum(corrects[new_mask]).item()
+                correct_new += torch.sum(result[new_mask]).item()
                 total_new += torch.sum(new_mask).item()
 
                 # momentum update after each step
@@ -286,7 +286,7 @@ class Momentum(BaseLearner):
             _targets = _targets.numpy()
             with torch.no_grad():
                 _vectors = self._network.convnet(_inputs.to(self._device))["features"]
-                _vectors = tensor2numpy(_vectors)
+                _vectors = _vectors.cpu().numpy()
 
             vectors.append(_vectors)
             targets.append(_targets)

@@ -129,10 +129,10 @@ class BaseLearner(object):
             with torch.no_grad():
                 outputs = model(inputs)["logits"]
             predicts = torch.max(outputs, dim=1)[1]
-            correct += (predicts.cpu() == targets).sum()
+            correct += torch.sum(torch.eq(predicts.cpu(), targets)).item()
             total += len(targets)
 
-        return np.around(tensor2numpy(correct) * 100 / total, decimals=2)
+        return np.around(correct * 100 / total, decimals=2)
 
     def _eval_cnn(self, loader):
         self._network.eval()
