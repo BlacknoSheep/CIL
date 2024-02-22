@@ -16,12 +16,19 @@ class Joint(BaseLearner):
     def __init__(self, args):
         super().__init__(args)
         self.args = args
-        self._network = HeadNet(args, False,
-                                FcHead(512, self.args["init_cls"], pre_norm=self.args["pre_norm"]))
+        self._network = HeadNet(
+            args,
+            False,
+            FcHead(512, self.args["init_cls"], pre_norm=self.args["reprojector"]),
+        )
 
-        self._saved_prefix = "{}_{}_{}_{}_{}".format(self.args["prefix"], self.args["model_name"],
-                                                     self.args["convnet_type"], self.args["dataset"],
-                                                     self.args["init_cls"])
+        self._saved_prefix = "{}_{}_{}_{}_{}".format(
+            self.args["prefix"],
+            self.args["model_name"],
+            self.args["convnet_type"],
+            self.args["dataset"],
+            self.args["init_cls"],
+        )
 
     @property
     def _new_classes(self):
@@ -42,7 +49,7 @@ class Joint(BaseLearner):
     def incremental_train(self, data_manager):
         self.data_manager = data_manager
         dataset_name = self.args["dataset"].lower()
-        if 'cifar' in dataset_name:
+        if "cifar" in dataset_name:
             self.data_manager._train_trsf = [
                 transforms.RandomCrop(32, padding=4),
                 transforms.RandomHorizontalFlip(),
@@ -51,10 +58,12 @@ class Joint(BaseLearner):
                 transforms.ToTensor(),
                 transforms.RandomErasing(inplace=True),
             ]
-        elif 'imagenet' in dataset_name:
+        elif "imagenet" in dataset_name:
             self.data_manager._train_trsf = [
                 # transforms.RandomResizedCrop(224, scale=(0.5, 1.0)), # https://github.com/pytorch/examples/issues/355
-                transforms.RandomResizedCrop(224),  # The default scale (0.08, 1.0) is better for incremental learning
+                transforms.RandomResizedCrop(
+                    224
+                ),  # The default scale (0.08, 1.0) is better for incremental learning
                 transforms.RandomHorizontalFlip(),
                 # transforms.ColorJitter(brightness=63 / 255), # ColorJitter will lower the accuracy for IL
                 transforms.AutoAugment(policy=transforms.AutoAugmentPolicy.IMAGENET),
@@ -79,15 +88,21 @@ class Joint(BaseLearner):
             mode="train",
         )
         self.train_loader = DataLoader(
-            train_dataset, batch_size=self.args["batch_size"], shuffle=True, num_workers=self.args["num_workers"],
-            pin_memory=self.args["pin_memory"]
+            train_dataset,
+            batch_size=self.args["batch_size"],
+            shuffle=True,
+            num_workers=self.args["num_workers"],
+            pin_memory=self.args["pin_memory"],
         )
         test_dataset = data_manager.get_dataset(
             np.arange(0, self._total_classes), source="test", mode="test"
         )
         self.test_loader = DataLoader(
-            test_dataset, batch_size=self.args["batch_size"], shuffle=False, num_workers=self.args["num_workers"],
-            pin_memory=self.args["pin_memory"]
+            test_dataset,
+            batch_size=self.args["batch_size"],
+            shuffle=False,
+            num_workers=self.args["num_workers"],
+            pin_memory=self.args["pin_memory"],
         )
 
         if len(self._multiple_gpus) > 1:
@@ -100,19 +115,40 @@ class Joint(BaseLearner):
         self._network.to(self._device, non_blocking=True)
         if self._cur_task == 0:
             if self.args["initial_model_path"] is not None:
-                logging.info("Load initial trained model from {}".format(self.args["initial_model_path"]))
-                self._network.load_state_dict(torch.load(self.args["initial_model_path"],
-                                                         map_location=self._device)["model_state_dict"], strict=True)
+                logging.info(
+                    "Load initial trained model from {}".format(
+                        self.args["initial_model_path"]
+                    )
+                )
+                self._network.load_state_dict(
+                    torch.load(
+                        self.args["initial_model_path"], map_location=self._device
+                    )["model_state_dict"],
+                    strict=True,
+                )
             else:
                 logging.info("Train from scratch")
                 optimizer = optim.SGD(
                     filter(lambda p: p.requires_grad, self._network.parameters()),
                     lr=self.args["init_lr"],
                     momentum=0.9,
-                    weight_decay=self.args["init_weight_decay"])
-                scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer=optimizer, T_max=self.args["init_epochs"])
-                self._init_train(train_loader, test_loader, optimizer, scheduler, epochs=self.args["init_epochs"])
-                logging.info("Save initial trained model to {}".format(self._saved_prefix + "_0.pkl"))
+                    weight_decay=self.args["init_weight_decay"],
+                )
+                scheduler = optim.lr_scheduler.CosineAnnealingLR(
+                    optimizer=optimizer, T_max=self.args["init_epochs"]
+                )
+                self._init_train(
+                    train_loader,
+                    test_loader,
+                    optimizer,
+                    scheduler,
+                    epochs=self.args["init_epochs"],
+                )
+                logging.info(
+                    "Save initial trained model to {}".format(
+                        self._saved_prefix + "_0.pkl"
+                    )
+                )
                 self.save_checkpoint(self._saved_prefix)
                 self._network.to(self._device, non_blocking=True)
 
@@ -131,8 +167,16 @@ class Joint(BaseLearner):
                 momentum=0.9,
                 weight_decay=self.args["weight_decay"],
             )
-            scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer=optimizer, T_max=self.args["epochs"])
-            self._next_train(train_loader, test_loader, optimizer, scheduler, epochs=self.args["epochs"])
+            scheduler = optim.lr_scheduler.CosineAnnealingLR(
+                optimizer=optimizer, T_max=self.args["epochs"]
+            )
+            self._next_train(
+                train_loader,
+                test_loader,
+                optimizer,
+                scheduler,
+                epochs=self.args["epochs"],
+            )
 
     def _init_train(self, train_loader, test_loader, optimizer, scheduler, epochs):
         prog_bar = tqdm(range(epochs))
@@ -252,4 +296,3 @@ class Joint(BaseLearner):
             os.makedirs(folder_path)
         saved_path = os.path.join(folder_path, self._saved_prefix + "_all.pkl")
         torch.save(saved_dict, saved_path)
-

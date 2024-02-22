@@ -102,9 +102,9 @@ class BaseNet(nn.Module):
         else:
             checkpoint_name = f"checkpoints/finetune_{args['csv_name']}_0.pkl"
         model_infos = torch.load(checkpoint_name)
-        self.convnet.load_state_dict(model_infos['convnet'])
-        self.fc.load_state_dict(model_infos['fc'])
-        test_acc = model_infos['test_acc']
+        self.convnet.load_state_dict(model_infos["convnet"])
+        self.fc.load_state_dict(model_infos["fc"])
+        test_acc = model_infos["test_acc"]
         return test_acc
 
 
@@ -223,10 +223,14 @@ class SimpleCosineIncrementalNet(BaseNet):
             weight = copy.deepcopy(self.fc.weight.data)
             fc.sigma.data = self.fc.sigma.data
             if nextperiod_initialization is not None:
-
                 weight = torch.cat([weight, nextperiod_initialization])
             else:
-                weight = torch.cat([weight, torch.zeros(nb_classes - nb_output, self.feature_dim).cuda()])
+                weight = torch.cat(
+                    [
+                        weight,
+                        torch.zeros(nb_classes - nb_output, self.feature_dim).cuda(),
+                    ]
+                )
             fc.weight = nn.Parameter(weight)
         del self.fc
         self.fc = fc
@@ -237,7 +241,15 @@ class SimpleCosineIncrementalNet(BaseNet):
 
 
 class Projector(nn.Module):
-    def __init__(self, in_dim, hidden_dim=None, out_dim=None, norm_type=nn.LayerNorm, act_type=nn.GELU, drop=0.):
+    def __init__(
+        self,
+        in_dim,
+        hidden_dim=None,
+        out_dim=None,
+        norm_type=nn.LayerNorm,
+        act_type=nn.GELU,
+        drop=0.0,
+    ):
         super().__init__()
         out_dim = out_dim or in_dim
         hidden_dim = hidden_dim or in_dim
@@ -307,10 +319,7 @@ class MLPHead(nn.Module):
 
         feat = self.mlp(x)
         x = self.fc(feat)
-        return {
-            "features": feat,
-            "logits": x
-        }
+        return {"features": feat, "logits": x}
 
     def update_fc(self, out_dim):
         self.out_dim = out_dim
@@ -370,7 +379,7 @@ class FeatureGenerator(nn.Module):
         if pre_norm:
             x_bar = self.norm0(x_bar)
 
-        noise = F.normalize(noise, dim=1) * self.radius # [batch_size, feature_dim]
+        noise = F.normalize(noise, dim=1) * self.radius  # [batch_size, feature_dim]
         x = x_bar + noise
 
         x = x + self.res1(x)

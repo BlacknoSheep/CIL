@@ -18,14 +18,21 @@ class Momentum(BaseLearner):
     def __init__(self, args):
         super().__init__(args)
         self.args = args
-        self._network = HeadNet(args, False,
-                                FcHead(512, self.args["init_cls"], pre_norm=self.args["pre_norm"]))
+        self._network = HeadNet(
+            args,
+            False,
+            FcHead(512, self.args["init_cls"], pre_norm=self.args["reprojector"]),
+        )
         self._means = None
         self._stds = None
         self._shot = None
-        self._saved_prefix = "{}_{}_{}_{}_{}".format(self.args["prefix"], self.args["model_name"],
-                                                     self.args["convnet_type"], self.args["dataset"],
-                                                     self.args["init_cls"])
+        self._saved_prefix = "{}_{}_{}_{}_{}".format(
+            self.args["prefix"],
+            self.args["model_name"],
+            self.args["convnet_type"],
+            self.args["dataset"],
+            self.args["init_cls"],
+        )
 
     @property
     def _new_classes(self):
@@ -51,7 +58,7 @@ class Momentum(BaseLearner):
     def incremental_train(self, data_manager):
         self.data_manager = data_manager
         dataset_name = self.args["dataset"].lower()
-        if 'cifar' in dataset_name:
+        if "cifar" in dataset_name:
             self.data_manager._train_trsf = [
                 transforms.RandomCrop(32, padding=4),
                 transforms.RandomHorizontalFlip(),
@@ -60,10 +67,12 @@ class Momentum(BaseLearner):
                 transforms.ToTensor(),
                 transforms.RandomErasing(inplace=True),
             ]
-        elif 'imagenet' in dataset_name:
+        elif "imagenet" in dataset_name:
             self.data_manager._train_trsf = [
                 # transforms.RandomResizedCrop(224, scale=(0.5, 1.0)), # https://github.com/pytorch/examples/issues/355
-                transforms.RandomResizedCrop(224),  # The default scale (0.08, 1.0) is better for incremental learning
+                transforms.RandomResizedCrop(
+                    224
+                ),  # The default scale (0.08, 1.0) is better for incremental learning
                 transforms.RandomHorizontalFlip(),
                 # transforms.ColorJitter(brightness=63 / 255), # ColorJitter will lower the accuracy for IL
                 transforms.AutoAugment(policy=transforms.AutoAugmentPolicy.IMAGENET),
@@ -87,15 +96,21 @@ class Momentum(BaseLearner):
             mode="train",
         )
         self.train_loader = DataLoader(
-            train_dataset, batch_size=self.args["batch_size"], shuffle=True, num_workers=self.args["num_workers"],
-            pin_memory=self.args["pin_memory"]
+            train_dataset,
+            batch_size=self.args["batch_size"],
+            shuffle=True,
+            num_workers=self.args["num_workers"],
+            pin_memory=self.args["pin_memory"],
         )
         test_dataset = data_manager.get_dataset(
             np.arange(0, self._total_classes), source="test", mode="test"
         )
         self.test_loader = DataLoader(
-            test_dataset, batch_size=self.args["batch_size"], shuffle=False, num_workers=self.args["num_workers"],
-            pin_memory=self.args["pin_memory"]
+            test_dataset,
+            batch_size=self.args["batch_size"],
+            shuffle=False,
+            num_workers=self.args["num_workers"],
+            pin_memory=self.args["pin_memory"],
         )
 
         if len(self._multiple_gpus) > 1:
@@ -108,19 +123,40 @@ class Momentum(BaseLearner):
         self._network.to(self._device, non_blocking=True)
         if self._cur_task == 0:
             if self.args["initial_model_path"] is not None:
-                logging.info("Load initial trained model from {}".format(self.args["initial_model_path"]))
-                self._network.load_state_dict(torch.load(self.args["initial_model_path"],
-                                                         map_location=self._device)["model_state_dict"], strict=True)
+                logging.info(
+                    "Load initial trained model from {}".format(
+                        self.args["initial_model_path"]
+                    )
+                )
+                self._network.load_state_dict(
+                    torch.load(
+                        self.args["initial_model_path"], map_location=self._device
+                    )["model_state_dict"],
+                    strict=True,
+                )
             else:
                 logging.info("Train from scratch")
                 optimizer = optim.SGD(
                     filter(lambda p: p.requires_grad, self._network.parameters()),
                     lr=self.args["init_lr"],
                     momentum=0.9,
-                    weight_decay=self.args["init_weight_decay"])
-                scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer=optimizer, T_max=self.args["init_epochs"])
-                self._init_train(train_loader, test_loader, optimizer, scheduler, epochs=self.args["init_epochs"])
-                logging.info("Save initial trained model to {}".format(self._saved_prefix + "_0.pkl"))
+                    weight_decay=self.args["init_weight_decay"],
+                )
+                scheduler = optim.lr_scheduler.CosineAnnealingLR(
+                    optimizer=optimizer, T_max=self.args["init_epochs"]
+                )
+                self._init_train(
+                    train_loader,
+                    test_loader,
+                    optimizer,
+                    scheduler,
+                    epochs=self.args["init_epochs"],
+                )
+                logging.info(
+                    "Save initial trained model to {}".format(
+                        self._saved_prefix + "_0.pkl"
+                    )
+                )
                 self.save_checkpoint(self._saved_prefix)
                 self._network.to(self._device, non_blocking=True)
 
@@ -142,8 +178,16 @@ class Momentum(BaseLearner):
                 momentum=0.9,
                 weight_decay=self.args["weight_decay"],
             )
-            scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer=optimizer, T_max=self.args["epochs"])
-            self._train_head(train_loader, test_loader, optimizer, scheduler, epochs=self.args["epochs"])
+            scheduler = optim.lr_scheduler.CosineAnnealingLR(
+                optimizer=optimizer, T_max=self.args["epochs"]
+            )
+            self._train_head(
+                train_loader,
+                test_loader,
+                optimizer,
+                scheduler,
+                epochs=self.args["epochs"],
+            )
 
     def _init_train(self, train_loader, test_loader, optimizer, scheduler, epochs):
         prog_bar = tqdm(range(epochs))
@@ -198,8 +242,11 @@ class Momentum(BaseLearner):
         # build feature train_loader and test_loader, which contains features
         test_dataset = self._build_feature_dataset(original_test_loader, mode="test")
         test_loader = DataLoader(
-            test_dataset, batch_size=self.args["batch_size"], shuffle=False, num_workers=self.args["num_workers"],
-            pin_memory=self.args["pin_memory"]
+            test_dataset,
+            batch_size=self.args["batch_size"],
+            shuffle=False,
+            num_workers=self.args["num_workers"],
+            pin_memory=self.args["pin_memory"],
         )
 
         # momentum update after each task
@@ -208,10 +255,15 @@ class Momentum(BaseLearner):
         prog_bar = tqdm(range(epochs))
         for _, epoch in enumerate(prog_bar):
             # rebuild train_loader before each epoch to achieve more diversity
-            train_dataset = self._build_feature_dataset(original_train_loader, mode="train")
+            train_dataset = self._build_feature_dataset(
+                original_train_loader, mode="train"
+            )
             train_loader = DataLoader(
-                train_dataset, batch_size=self.args["batch_size"], shuffle=True, num_workers=self.args["num_workers"],
-                pin_memory=self.args["pin_memory"]
+                train_dataset,
+                batch_size=self.args["batch_size"],
+                shuffle=True,
+                num_workers=self.args["num_workers"],
+                pin_memory=self.args["pin_memory"],
             )
 
             # momentum update after each epoch
@@ -296,13 +348,20 @@ class Momentum(BaseLearner):
     def _compute_means(self):
         with torch.no_grad():
             for class_idx in range(self._known_classes, self._total_classes):
-                idx_dataset = self.data_manager.get_dataset(np.arange(class_idx, class_idx + 1),
-                                                            source='train',
-                                                            mode='test')
-                idx_loader = DataLoader(idx_dataset, batch_size=self.args["batch_size"], shuffle=False,
-                                        num_workers=self.args["num_workers"], pin_memory=self.args["pin_memory"])
+                idx_dataset = self.data_manager.get_dataset(
+                    np.arange(class_idx, class_idx + 1), source="train", mode="test"
+                )
+                idx_loader = DataLoader(
+                    idx_dataset,
+                    batch_size=self.args["batch_size"],
+                    shuffle=False,
+                    num_workers=self.args["num_workers"],
+                    pin_memory=self.args["pin_memory"],
+                )
                 vectors, _ = self._extract_vectors(idx_loader)
-                class_mean = np.mean(vectors, axis=0, keepdims=True)  # [1 * feature_dim]
+                class_mean = np.mean(
+                    vectors, axis=0, keepdims=True
+                )  # [1 * feature_dim]
                 class_std = np.std(vectors, axis=0, keepdims=True)  # [1 * feature_dim]
                 if self._means is None:
                     self._means = class_mean
@@ -375,8 +434,9 @@ class Momentum(BaseLearner):
             inputs = inputs.to(self._device)
             with torch.no_grad():
                 features = model(inputs)["features"]
-            logits = self._compute_ncm_logits(features,
-                                              torch.from_numpy(np.array(self._means)).to(self._device))
+            logits = self._compute_ncm_logits(
+                features, torch.from_numpy(np.array(self._means)).to(self._device)
+            )
 
             predicts = torch.topk(
                 logits, k=self.topk, dim=1, largest=True, sorted=True
@@ -390,10 +450,18 @@ class Momentum(BaseLearner):
 
     def _momentum_update_head(self, old_head, momentum):
         # except wight and bias of new classes in fc
-        old_head.fc.weight.data[self._known_classes:] = self._network.head.fc.weight.data[self._known_classes:]
-        old_head.fc.bias.data[self._known_classes:] = self._network.head.fc.bias.data[self._known_classes:]
-        for param_new, param_old in zip(self._network.head.parameters(), old_head.parameters()):
-            param_new.data = param_old.data * momentum + param_new.data * (1. - momentum)
+        old_head.fc.weight.data[self._known_classes :] = (
+            self._network.head.fc.weight.data[self._known_classes :]
+        )
+        old_head.fc.bias.data[self._known_classes :] = self._network.head.fc.bias.data[
+            self._known_classes :
+        ]
+        for param_new, param_old in zip(
+            self._network.head.parameters(), old_head.parameters()
+        ):
+            param_new.data = param_old.data * momentum + param_new.data * (
+                1.0 - momentum
+            )
 
     def _build_feature_dataset(self, loader, mode):
         """
@@ -411,28 +479,36 @@ class Momentum(BaseLearner):
             elif self.args["generator"] == "noise":
                 old_features, old_targets = self._generate_by_noise(n_per_class)
             elif self.args["generator"] == "translation":
-                old_features, old_targets = self._generate_by_translation(features, targets, n_per_class)
+                old_features, old_targets = self._generate_by_translation(
+                    features, targets, n_per_class
+                )
             else:
-                raise NotImplementedError("Unknown generator: {}".format(self.args["generator"]))
+                raise NotImplementedError(
+                    "Unknown generator: {}".format(self.args["generator"])
+                )
 
-            features = np.concatenate((features, old_features), axis=0, dtype=np.float32)
+            features = np.concatenate(
+                (features, old_features), axis=0, dtype=np.float32
+            )
             targets = np.concatenate((targets, old_targets), axis=0)
         elif mode == "test":
             pass
         return DummyDataset(torch.from_numpy(features), torch.from_numpy(targets))
 
     def _generate_by_oversampling(self, n_per_class):
-        features = self._means[:self._known_classes]  # e.g: [0,1,2]
+        features = self._means[: self._known_classes]  # e.g: [0,1,2]
         features = np.repeat(features, n_per_class, axis=0)  # e.g: [0,0,1,1,2,2]
         labels = np.arange(self._known_classes)  # e.g: [0,1,2]
         labels = np.repeat(labels, n_per_class, axis=0)  # e.g: [0,0,1,1,2,2]
         return features, labels
 
     def _generate_by_noise(self, n_per_class):
-        features = self._means[:self._known_classes]  # e.g: [0,1,2]
-        stds = self._stds[:self._known_classes]  # e.g: [0,1,2]
+        features = self._means[: self._known_classes]  # e.g: [0,1,2]
+        stds = self._stds[: self._known_classes]  # e.g: [0,1,2]
         # sample from normal (Gaussian) distribution
-        features = np.random.normal(features, stds, size=(n_per_class, *features.shape))  # e.g: [[0,1,2],[0,1,2]]
+        features = np.random.normal(
+            features, stds, size=(n_per_class, *features.shape)
+        )  # e.g: [[0,1,2],[0,1,2]]
         features = np.concatenate(features, axis=0)  # e.g: [0,1,2,0,1,2]
         labels = np.arange(self._known_classes)  # e.g: [0,1,2]
         labels = np.tile(labels, n_per_class)  # e.g: [0,1,2,0,1,2]
@@ -445,7 +521,9 @@ class Momentum(BaseLearner):
         """
         refer_means = self._means[refer_labels]
         refer_bias = refer_features - refer_means
-        random_idxs = np.random.randint(0, refer_bias.shape[0], size=self._known_classes * n_per_class)
+        random_idxs = np.random.randint(
+            0, refer_bias.shape[0], size=self._known_classes * n_per_class
+        )
 
         features, labels = self._generate_by_oversampling(n_per_class)
         features += refer_bias[random_idxs]

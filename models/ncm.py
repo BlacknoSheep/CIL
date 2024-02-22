@@ -20,13 +20,20 @@ class NCM(BaseLearner):
     def __init__(self, args):
         super().__init__(args)
         self.args = args
-        self._network = HeadNet(args, False,
-                                FcHead(512, self.args["init_cls"], pre_norm=self.args["pre_norm"]))
+        self._network = HeadNet(
+            args,
+            False,
+            FcHead(512, self.args["init_cls"], pre_norm=self.args["reprojector"]),
+        )
         self._means = None
         self._stds = None
-        self._saved_prefix = "{}_{}_{}_{}_{}".format(self.args["prefix"], self.args["model_name"],
-                                                     self.args["convnet_type"], self.args["dataset"],
-                                                     self.args["init_cls"])
+        self._saved_prefix = "{}_{}_{}_{}_{}".format(
+            self.args["prefix"],
+            self.args["model_name"],
+            self.args["convnet_type"],
+            self.args["dataset"],
+            self.args["init_cls"],
+        )
 
     @property
     def _new_classes(self):
@@ -47,7 +54,7 @@ class NCM(BaseLearner):
     def incremental_train(self, data_manager):
         self.data_manager = data_manager
         dataset_name = self.args["dataset"].lower()
-        if 'cifar' in dataset_name:
+        if "cifar" in dataset_name:
             self.data_manager._train_trsf = [
                 transforms.RandomCrop(32, padding=4),
                 transforms.RandomHorizontalFlip(),
@@ -56,10 +63,12 @@ class NCM(BaseLearner):
                 transforms.ToTensor(),
                 transforms.RandomErasing(inplace=True),
             ]
-        elif 'imagenet' in dataset_name:
+        elif "imagenet" in dataset_name:
             self.data_manager._train_trsf = [
                 # transforms.RandomResizedCrop(224, scale=(0.5, 1.0)), # https://github.com/pytorch/examples/issues/355
-                transforms.RandomResizedCrop(224),  # The default scale (0.08, 1.0) is better for incremental learning
+                transforms.RandomResizedCrop(
+                    224
+                ),  # The default scale (0.08, 1.0) is better for incremental learning
                 transforms.RandomHorizontalFlip(),
                 # transforms.ColorJitter(brightness=63 / 255), # ColorJitter will lower the accuracy for IL
                 transforms.AutoAugment(policy=transforms.AutoAugmentPolicy.IMAGENET),
@@ -83,15 +92,21 @@ class NCM(BaseLearner):
             mode="train",
         )
         self.train_loader = DataLoader(
-            train_dataset, batch_size=self.args["batch_size"], shuffle=True, num_workers=self.args["num_workers"],
-            pin_memory=self.args["pin_memory"]
+            train_dataset,
+            batch_size=self.args["batch_size"],
+            shuffle=True,
+            num_workers=self.args["num_workers"],
+            pin_memory=self.args["pin_memory"],
         )
         test_dataset = data_manager.get_dataset(
             np.arange(0, self._total_classes), source="test", mode="test"
         )
         self.test_loader = DataLoader(
-            test_dataset, batch_size=self.args["batch_size"], shuffle=False, num_workers=self.args["num_workers"],
-            pin_memory=self.args["pin_memory"]
+            test_dataset,
+            batch_size=self.args["batch_size"],
+            shuffle=False,
+            num_workers=self.args["num_workers"],
+            pin_memory=self.args["pin_memory"],
         )
 
         if len(self._multiple_gpus) > 1:
@@ -104,19 +119,40 @@ class NCM(BaseLearner):
         self._network.to(self._device, non_blocking=True)
         if self._cur_task == 0:
             if self.args["initial_model_path"] is not None:
-                logging.info("Load initial trained model from {}".format(self.args["initial_model_path"]))
-                self._network.load_state_dict(torch.load(self.args["initial_model_path"],
-                                                         map_location=self._device)["model_state_dict"], strict=True)
+                logging.info(
+                    "Load initial trained model from {}".format(
+                        self.args["initial_model_path"]
+                    )
+                )
+                self._network.load_state_dict(
+                    torch.load(
+                        self.args["initial_model_path"], map_location=self._device
+                    )["model_state_dict"],
+                    strict=True,
+                )
             else:
                 logging.info("Train from scratch")
                 optimizer = optim.SGD(
                     filter(lambda p: p.requires_grad, self._network.parameters()),
                     lr=self.args["init_lr"],
                     momentum=0.9,
-                    weight_decay=self.args["init_weight_decay"])
-                scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer=optimizer, T_max=self.args["init_epochs"])
-                self._init_train(train_loader, test_loader, optimizer, scheduler, epochs=self.args["init_epochs"])
-                logging.info("Save initial trained model to {}".format(self._saved_prefix + "_0.pkl"))
+                    weight_decay=self.args["init_weight_decay"],
+                )
+                scheduler = optim.lr_scheduler.CosineAnnealingLR(
+                    optimizer=optimizer, T_max=self.args["init_epochs"]
+                )
+                self._init_train(
+                    train_loader,
+                    test_loader,
+                    optimizer,
+                    scheduler,
+                    epochs=self.args["init_epochs"],
+                )
+                logging.info(
+                    "Save initial trained model to {}".format(
+                        self._saved_prefix + "_0.pkl"
+                    )
+                )
                 self.save_checkpoint(self._saved_prefix)
                 self._network.to(self._device, non_blocking=True)
 
@@ -177,6 +213,16 @@ class NCM(BaseLearner):
             prog_bar.set_description(info)
             logging.info(info)
 
+    def _layernorm(self, x, eps=1e-05):
+        """
+        :param x: Tensor of [n, dim]
+        :param eps: same as torch.nn.LayerNorm
+        """
+        mean = torch.mean(x, dim=1, keepdim=True)
+        std = torch.std(x, dim=1, keepdim=True)
+        x = (x - mean) / (std + eps)
+        return x
+
     def _extract_vectors(self, loader):
         self._network.convnet.eval()
         vectors, targets = [], []
@@ -194,13 +240,20 @@ class NCM(BaseLearner):
     def _compute_means(self):
         with torch.no_grad():
             for class_idx in range(self._known_classes, self._total_classes):
-                idx_dataset = self.data_manager.get_dataset(np.arange(class_idx, class_idx + 1),
-                                                            source='train',
-                                                            mode='test')
-                idx_loader = DataLoader(idx_dataset, batch_size=self.args["batch_size"], shuffle=False,
-                                        num_workers=self.args["num_workers"], pin_memory=self.args["pin_memory"])
+                idx_dataset = self.data_manager.get_dataset(
+                    np.arange(class_idx, class_idx + 1), source="train", mode="test"
+                )
+                idx_loader = DataLoader(
+                    idx_dataset,
+                    batch_size=self.args["batch_size"],
+                    shuffle=False,
+                    num_workers=self.args["num_workers"],
+                    pin_memory=self.args["pin_memory"],
+                )
                 vectors, _ = self._extract_vectors(idx_loader)
-                class_mean = np.mean(vectors, axis=0, keepdims=True)  # [1 * feature_dim]
+                class_mean = np.mean(
+                    vectors, axis=0, keepdims=True
+                )  # [1 * feature_dim]
                 class_std = np.std(vectors, axis=0, keepdims=True)  # [1 * feature_dim]
                 if self._means is None:
                     self._means = class_mean
@@ -228,6 +281,9 @@ class NCM(BaseLearner):
         :param features: Tensor of [n, feature_dim]
         :param means: Tensor of [n_classes, feature_dim]
         """
+        features = self._layernorm(features)
+        means = self._layernorm(means)
+
         if mode == "cosine":
             # normalize features
             features = F.normalize(features, dim=1)
@@ -242,7 +298,9 @@ class NCM(BaseLearner):
 
     def eval_task(self):
         # ncm_cosine accy
-        y_pred, y_true = self._eval_ncm(self._network.convnet, self.test_loader, mode=self.args["mode"])
+        y_pred, y_true = self._eval_ncm(
+            self._network.convnet, self.test_loader, mode=self.args["mode"]
+        )
         ncm_accy = self._evaluate(y_pred, y_true)
         return {
             "ncm_accy": ncm_accy,
@@ -255,9 +313,11 @@ class NCM(BaseLearner):
             inputs = inputs.to(self._device)
             with torch.no_grad():
                 features = model(inputs)["features"]
-            logits = self._compute_ncm_logits(features,
-                                              torch.from_numpy(np.array(self._means)).to(self._device),
-                                              mode=mode)
+            logits = self._compute_ncm_logits(
+                features,
+                torch.from_numpy(np.array(self._means)).to(self._device),
+                mode=mode,
+            )
 
             predicts = torch.topk(
                 logits, k=self.topk, dim=1, largest=True, sorted=True
