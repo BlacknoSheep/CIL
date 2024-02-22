@@ -9,13 +9,13 @@
    Code to read TinyImageNet will be like:
 
    ```python
-   torchvision.datasetsImageFolder("./data/tiny-imagenet-200/train/")
-   torchvision.datasetsImageFolder("./data/tiny-imagenet-200/val/")
+   torchvision.datasets.ImageFolder("./data/tiny-imagenet-200/train/")
+   torchvision.datasets.ImageFolder("./data/tiny-imagenet-200/val/")
    ```
 
 ## Run
 
-```python
+```bash
 python main.py --config=exps/momentum.json
 ```
 

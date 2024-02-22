@@ -93,8 +93,8 @@ class BaseLearner(object):
 
         if save_conf:
             _pred = y_pred.T[0]
-            _pred_path = os.path.join(self.args['logfilename'], "pred.npy")
-            _target_path = os.path.join(self.args['logfilename'], "target.npy")
+            _pred_path = os.path.join(self.args["logfilename"], "pred.npy")
+            _target_path = os.path.join(self.args["logfilename"], "target.npy")
             np.save(_pred_path, _pred)
             np.save(_target_path, y_true)
 
@@ -102,7 +102,9 @@ class BaseLearner(object):
             os.makedirs(_save_dir, exist_ok=True)
             _save_path = os.path.join(_save_dir, f"{self.args['csv_name']}.csv")
             with open(_save_path, "a+") as f:
-                f.write(f"{self.args['time_str']},{self.args['model_name']},{_pred_path},{_target_path} \n")
+                f.write(
+                    f"{self.args['time_str']},{self.args['model_name']},{_pred_path},{_target_path} \n"
+                )
 
         return {
             "cnn_accy": cnn_accy,
