@@ -1,7 +1,6 @@
 {
-  "prefix": "e250+50",
+  "prefix": "ours",
   "dataset": "cifar100",
-  "memory_size": 0,
   "shuffle": true,
   "init_cls": 50,
   "increment": 10,
@@ -19,8 +18,10 @@
   "batch_size": 128,
   "num_workers": 8,
   "pin_memory": true,
-  "T": 2,
-  "reprojector": true,
+  "freeze_convnet": true,
+  "ncm_type": "euclidean",
+  "reprojector": "layernorm",
+  "affine": false,
   "momentum": 0.99,
   "generator": "noise"
 }

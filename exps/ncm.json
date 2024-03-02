@@ -1,7 +1,6 @@
 {
-  "prefix": "euclidean",
+  "prefix": "R-NCM",
   "dataset": "cifar100",
-  "memory_size": 0,
   "shuffle": true,
   "init_cls": 50,
   "increment": 10,
@@ -16,7 +15,7 @@
   "batch_size": 128,
   "num_workers": 8,
   "pin_memory": true,
-  "T": 2,
-  "reprojector": false,
-  "mode": "euclidean"
+  "ncm_type": "euclidean",
+  "reprojector": "layernorm",
+  "affine": false
 }

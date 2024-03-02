@@ -1,50 +1,36 @@
 import logging
 import numpy as np
 import torch
-import os
 from torch import nn
 from tqdm import tqdm
 from torch import optim
 from torch.nn import functional as F
 from torch.utils.data import DataLoader
-from utils.inc_net import HeadNet, FcHead
+from utils.inc_net import get_convnet, FcHead
 from models.base import BaseLearner
 from torchvision import transforms
+
+
+class MainNet(nn.Module):
+    def __init__(self, args, pretrained=False):
+        super().__init__()
+        self.convnet = get_convnet(args, pretrained)
+        self.feature_dim = self.convnet.out_dim
+        self.head = FcHead(self.feature_dim, args["init_cls"])
+
+    def forward(self, x):
+        x = self.convnet(x)["features"]
+        logits = self.head(x)["logits"]
+        return {"features": x, "logits": logits}
+
+    def update_head(self, total_classes):
+        self.head.update_fc(total_classes)
 
 
 class Joint(BaseLearner):
     def __init__(self, args):
         super().__init__(args)
-        self.args = args
-        self._network = HeadNet(
-            args,
-            False,
-            FcHead(512, self.args["init_cls"], pre_norm=self.args["reprojector"]),
-        )
-
-        self._saved_prefix = "{}_{}_{}_{}_{}".format(
-            self.args["prefix"],
-            self.args["model_name"],
-            self.args["convnet_type"],
-            self.args["dataset"],
-            self.args["init_cls"],
-        )
-
-    @property
-    def _new_classes(self):
-        return self._total_classes - self._known_classes
-
-    def after_task(self):
-        self._known_classes = self._total_classes
-
-        # # save last predicts
-        # y_pred, y_true = self._eval_cnn(self.test_loader)
-        # y_pred = y_pred[:, 0]  # [N]
-        # predicts = np.stack((y_pred, y_true), axis=1)  # [N, 2]
-        # np.save(os.path.join("./saved", self._saved_prefix + "_predicts.npy"), predicts)
-
-        # save the final model
-        self._save_all()
+        self._network = MainNet(args)
 
     def incremental_train(self, data_manager):
         self.data_manager = data_manager
@@ -124,7 +110,7 @@ class Joint(BaseLearner):
                     torch.load(
                         self.args["initial_model_path"], map_location=self._device
                     )["model_state_dict"],
-                    strict=True,
+                    strict=False,
                 )
             else:
                 logging.info("Train from scratch")
@@ -144,16 +130,9 @@ class Joint(BaseLearner):
                     scheduler,
                     epochs=self.args["init_epochs"],
                 )
-                logging.info(
-                    "Save initial trained model to {}".format(
-                        self._saved_prefix + "_0.pkl"
-                    )
-                )
-                self.save_checkpoint(self._saved_prefix)
-                self._network.to(self._device, non_blocking=True)
 
-            # init_acc = self._compute_accuracy(self._network, test_loader)
-            # logging.info("Initial accy: {:.2f}".format(init_acc))
+                self._save_model("initial_model.pkl")
+                self._network.to(self._device, non_blocking=True)
 
             # Freeze the feature extractor
             if self.args["freeze_convnet"]:
@@ -180,13 +159,14 @@ class Joint(BaseLearner):
 
     def _init_train(self, train_loader, test_loader, optimizer, scheduler, epochs):
         prog_bar = tqdm(range(epochs))
-        for _, epoch in enumerate(prog_bar):
+        for i in prog_bar:
+            epoch = i + 1
             self._network.train()
             losses = 0.0
             correct, total = 0, 0
-            for i, (_, inputs, targets) in enumerate(train_loader):
+            for _, inputs, targets in train_loader:
                 inputs, targets = inputs.to(self._device), targets.to(self._device)
-                logits = self._network(inputs)["logits"]
+                logits = self._network(inputs)
 
                 loss = F.cross_entropy(logits, targets)
                 optimizer.zero_grad()
@@ -205,7 +185,7 @@ class Joint(BaseLearner):
                 test_acc = self._compute_accuracy(self._network, test_loader)
                 info = "Task {}, Epoch {}/{} => Loss {:.3f}, Train_accy {:.2f}, Test_accy {:.2f}".format(
                     self._cur_task,
-                    epoch + 1,
+                    epoch,
                     epochs,
                     losses / len(train_loader),
                     train_acc,
@@ -214,7 +194,7 @@ class Joint(BaseLearner):
             else:
                 info = "Task {}, Epoch {}/{} => Loss {:.3f}, Train_accy {:.2f}".format(
                     self._cur_task,
-                    epoch + 1,
+                    epoch,
                     epochs,
                     losses / len(train_loader),
                     train_acc,
@@ -225,15 +205,15 @@ class Joint(BaseLearner):
 
     def _next_train(self, train_loader, test_loader, optimizer, scheduler, epochs):
         prog_bar = tqdm(range(epochs))
-        for _, epoch in enumerate(prog_bar):
+        for i in prog_bar:
+            epoch = i + 1
             self._network.train()
             if self.args["freeze_convnet"]:
                 self._network.convnet.eval()
-
             losses = 0.0
             correct, total = 0, 0
             correct_new, total_new = 0, 0
-            for i, (_, inputs, targets) in enumerate(train_loader):
+            for _, inputs, targets in train_loader:
                 inputs, targets = inputs.to(self._device), targets.to(self._device)
 
                 if self.args["freeze_convnet"]:
@@ -266,7 +246,7 @@ class Joint(BaseLearner):
                 test_acc = self._compute_accuracy(self._network, test_loader)
                 info = "Task {}, Epoch {}/{} => Loss {:.3f}, Train_accy {:.2f}, Train_accy_new {:.2f}, Test_accy {:.2f}".format(
                     self._cur_task,
-                    epoch + 1,
+                    epoch,
                     epochs,
                     losses / len(train_loader),
                     train_acc,
@@ -276,7 +256,7 @@ class Joint(BaseLearner):
             else:
                 info = "Task {}, Epoch {}/{} => Loss {:.3f}, Train_accy {:.2f}, Train_accy_new {:.2f}".format(
                     self._cur_task,
-                    epoch + 1,
+                    epoch,
                     epochs,
                     losses / len(train_loader),
                     train_acc,
@@ -284,15 +264,3 @@ class Joint(BaseLearner):
                 )
             prog_bar.set_description(info)
             logging.info(info)
-
-    def _save_all(self):
-        self._network.cpu()
-        saved_dict = {
-            "task_id": self._cur_task,
-            "model_state_dict": self._network.state_dict(),
-        }
-        folder_path = "./saved"
-        if not os.path.exists(folder_path):
-            os.makedirs(folder_path)
-        saved_path = os.path.join(folder_path, self._saved_prefix + "_all.pkl")
-        torch.save(saved_dict, saved_path)

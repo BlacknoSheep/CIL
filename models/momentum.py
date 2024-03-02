@@ -8,52 +8,41 @@ from tqdm import tqdm
 from torch import optim
 from torch.nn import functional as F
 from torch.utils.data import Dataset, DataLoader
-from utils.inc_net import HeadNet, FcHead
+from utils.inc_net import get_convnet, Reprojector, FcHead
 from models.base import BaseLearner
-from utils.toolkit import tensor2numpy
 from torchvision import transforms
+
+
+class MainNet(nn.Module):
+    def __init__(self, args, pretrained=False):
+        super().__init__()
+        self.convnet = get_convnet(args, pretrained)
+        self.feature_dim = self.convnet.out_dim
+        self.reprojector = None
+        if args["reprojector"] is not None:
+            self.reprojector = Reprojector(
+                args["reprojector"], self.feature_dim, affine=args["affine"]
+            )
+        self.head = FcHead(self.feature_dim, args["init_cls"])
+
+    def forward(self, x):
+        x = self.convnet(x)["features"]
+        if self.reprojector is not None:
+            x = self.reprojector(x)["features"]
+        logits = self.head(x)["logits"]
+        return {"features": x, "logits": logits}
+
+    def update_head(self, total_classes):
+        self.head.update_fc(total_classes)
 
 
 class Momentum(BaseLearner):
     def __init__(self, args):
         super().__init__(args)
         self.args = args
-        self._network = HeadNet(
-            args,
-            False,
-            FcHead(512, self.args["init_cls"], pre_norm=self.args["reprojector"]),
-        )
+        self._network = MainNet(args)
         self._means = None
         self._stds = None
-        self._shot = None
-        self._saved_prefix = "{}_{}_{}_{}_{}".format(
-            self.args["prefix"],
-            self.args["model_name"],
-            self.args["convnet_type"],
-            self.args["dataset"],
-            self.args["init_cls"],
-        )
-
-    @property
-    def _new_classes(self):
-        return self._total_classes - self._known_classes
-
-    def after_task(self):
-        self._known_classes = self._total_classes
-
-        # # save last predicts
-        # y_pred, y_true = self._eval_cnn(self._network, self.test_loader)
-        # y_pred = y_pred[:, 0]  # [N]
-        # predicts = np.stack((y_pred, y_true), axis=1)  # [N, 2]
-        # np.save(os.path.join("./saved", self._saved_prefix + "_predicts.npy"), predicts)
-        # # save last ncm_cosine predicts
-        # y_pred, y_true = self._eval_ncm(self._network.convnet, self.test_loader)
-        # y_pred = y_pred[:, 0]  # [N]
-        # predicts = np.stack((y_pred, y_true), axis=1)  # [N, 2]
-        # np.save(os.path.join("./saved", self._saved_prefix + "_predicts_ncm.npy"), predicts)
-
-        # save the final model, means and stds
-        self._save_all()
 
     def incremental_train(self, data_manager):
         self.data_manager = data_manager
@@ -132,7 +121,7 @@ class Momentum(BaseLearner):
                     torch.load(
                         self.args["initial_model_path"], map_location=self._device
                     )["model_state_dict"],
-                    strict=True,
+                    strict=False,
                 )
             else:
                 logging.info("Train from scratch")
@@ -152,16 +141,9 @@ class Momentum(BaseLearner):
                     scheduler,
                     epochs=self.args["init_epochs"],
                 )
-                logging.info(
-                    "Save initial trained model to {}".format(
-                        self._saved_prefix + "_0.pkl"
-                    )
-                )
-                self.save_checkpoint(self._saved_prefix)
-                self._network.to(self._device, non_blocking=True)
 
-            # init_acc = self._compute_accuracy(self._network, test_loader)
-            # logging.info("Initial accy: {:.2f}".format(init_acc))
+                self._save_model("initial_model.pkl")
+                self._network.to(self._device, non_blocking=True)
 
             # Freeze the feature extractor
             logging.info("Freeze convnet")
@@ -181,7 +163,7 @@ class Momentum(BaseLearner):
             scheduler = optim.lr_scheduler.CosineAnnealingLR(
                 optimizer=optimizer, T_max=self.args["epochs"]
             )
-            self._train_head(
+            self._next_train(
                 train_loader,
                 test_loader,
                 optimizer,
@@ -191,11 +173,12 @@ class Momentum(BaseLearner):
 
     def _init_train(self, train_loader, test_loader, optimizer, scheduler, epochs):
         prog_bar = tqdm(range(epochs))
-        for _, epoch in enumerate(prog_bar):
+        for i in prog_bar:
+            epoch = i + 1
             self._network.train()
             losses = 0.0
             correct, total = 0, 0
-            for i, (_, inputs, targets) in enumerate(train_loader):
+            for _, inputs, targets in train_loader:
                 inputs, targets = inputs.to(self._device), targets.to(self._device)
                 logits = self._network(inputs)["logits"]
 
@@ -216,7 +199,7 @@ class Momentum(BaseLearner):
                 test_acc = self._compute_accuracy(self._network, test_loader)
                 info = "Task {}, Epoch {}/{} => Loss {:.3f}, Train_accy {:.2f}, Test_accy {:.2f}".format(
                     self._cur_task,
-                    epoch + 1,
+                    epoch,
                     epochs,
                     losses / len(train_loader),
                     train_acc,
@@ -225,7 +208,7 @@ class Momentum(BaseLearner):
             else:
                 info = "Task {}, Epoch {}/{} => Loss {:.3f}, Train_accy {:.2f}".format(
                     self._cur_task,
-                    epoch + 1,
+                    epoch,
                     epochs,
                     losses / len(train_loader),
                     train_acc,
@@ -234,7 +217,7 @@ class Momentum(BaseLearner):
             prog_bar.set_description(info)
             logging.info(info)
 
-    def _train_head(self, train_loader, test_loader, optimizer, scheduler, epochs):
+    def _next_train(self, train_loader, test_loader, optimizer, scheduler, epochs):
         # save original train_loader and test_loader, which contains input images
         original_train_loader = train_loader
         original_test_loader = test_loader
@@ -253,7 +236,8 @@ class Momentum(BaseLearner):
         # old_head = copy.deepcopy(self._network.head)
 
         prog_bar = tqdm(range(epochs))
-        for _, epoch in enumerate(prog_bar):
+        for i in prog_bar:
+            epoch = i + 1
             # rebuild train_loader before each epoch to achieve more diversity
             train_dataset = self._build_feature_dataset(
                 original_train_loader, mode="train"
@@ -269,12 +253,12 @@ class Momentum(BaseLearner):
             # momentum update after each epoch
             old_head = copy.deepcopy(self._network.head)
 
-            self._network.eval()
-            self._network.head.train()
+            self._network.train()
+            self._network.convnet.eval()
             losses = 0.0
             correct, total = 0, 0
             correct_new, total_new = 0, 0
-            for i, (_, inputs, targets) in enumerate(train_loader):
+            for _, inputs, targets in train_loader:
                 # momentum update after each step
                 # old_head = copy.deepcopy(self._network.head)
 
@@ -309,7 +293,7 @@ class Momentum(BaseLearner):
                 test_acc = self._compute_accuracy(self._network.head, test_loader)
                 info = "Task {}, Epoch {}/{} => Loss {:.3f}, Train_accy {:.2f}, Train_accy_new {:.2f}, Test_accy {:.2f}".format(
                     self._cur_task,
-                    epoch + 1,
+                    epoch,
                     epochs,
                     losses / len(train_loader),
                     train_acc,
@@ -319,7 +303,7 @@ class Momentum(BaseLearner):
             else:
                 info = "Task {}, Epoch {}/{} => Loss {:.3f}, Train_accy {:.2f}, Train_accy_new {:.2f}".format(
                     self._cur_task,
-                    epoch + 1,
+                    epoch,
                     epochs,
                     losses / len(train_loader),
                     train_acc,
@@ -331,122 +315,46 @@ class Momentum(BaseLearner):
         # momentum update after each task
         # self._momentum_update_head(old_head, momentum=self.args["momentum"])
 
-    def _extract_vectors(self, loader):
-        self._network.convnet.eval()
+    """
+    def _extract_vectors(self, loader, use_reprojector=False):
+        self._network.eval()
         vectors, targets = [], []
         for _, _inputs, _targets in loader:
-            _targets = _targets.numpy()
+            _inputs = _inputs.to(self._device)
             with torch.no_grad():
-                _vectors = self._network.convnet(_inputs.to(self._device))["features"]
-                _vectors = _vectors.cpu().numpy()
+                _vectors = self._network.convnet(_inputs)["features"]
+                if use_reprojector:
+                    _vectors = self._network.reprojector(_vectors)["features"]
 
-            vectors.append(_vectors)
-            targets.append(_targets)
+            vectors.append(_vectors.cpu().numpy())
+            targets.append(_targets.numpy())
 
         return np.concatenate(vectors), np.concatenate(targets)
 
-    def _compute_means(self):
-        with torch.no_grad():
-            for class_idx in range(self._known_classes, self._total_classes):
-                idx_dataset = self.data_manager.get_dataset(
-                    np.arange(class_idx, class_idx + 1), source="train", mode="test"
-                )
-                idx_loader = DataLoader(
-                    idx_dataset,
-                    batch_size=self.args["batch_size"],
-                    shuffle=False,
-                    num_workers=self.args["num_workers"],
-                    pin_memory=self.args["pin_memory"],
-                )
-                vectors, _ = self._extract_vectors(idx_loader)
-                class_mean = np.mean(
-                    vectors, axis=0, keepdims=True
-                )  # [1 * feature_dim]
-                class_std = np.std(vectors, axis=0, keepdims=True)  # [1 * feature_dim]
-                if self._means is None:
-                    self._means = class_mean
-                    self._stds = class_std
-                else:
-                    self._means = np.concatenate((self._means, class_mean), axis=0)
-                    self._stds = np.concatenate((self._stds, class_std), axis=0)
-
-    def _compute_accuracy(self, model, loader):
-        model.eval()
-        correct, total = 0, 0
-        for i, (_, inputs, targets) in enumerate(loader):
-            inputs = inputs.to(self._device)
-            with torch.no_grad():
-                logits = model(inputs)["logits"]
-
-            predicts = torch.max(logits, dim=1)[1]
-            correct += torch.sum(torch.eq(predicts.cpu(), targets)).item()
-            total += len(targets)
-
-        return np.around(correct * 100 / total, decimals=2)
-
-    def _compute_ncm_logits(self, features, means):
-        """
-        :param features: Tensor of [n, feature_dim]
-        :param means: Tensor of [n_classes, feature_dim]
-        """
-        # normalize features
-        features = F.normalize(features, dim=1)
-        means = F.normalize(means, dim=1)
-
-        logits = torch.mm(features, means.t())  # [n, n_classes]
-        return logits
-
-    def eval_task(self):
-        # cnn accy
-        y_pred, y_true = self._eval_cnn(self._network, self.test_loader)
-        cnn_accy = self._evaluate(y_pred, y_true)
-
-        # ncm accy
-        y_pred, y_true = self._eval_ncm(self._network.convnet, self.test_loader)
-        ncm_accy = self._evaluate(y_pred, y_true)
-        return {
-            "cnn_accy": cnn_accy,
-            "ncm_accy": ncm_accy,
-        }
-
-    def _eval_cnn(self, model, loader):
-        model.eval()
-        y_pred, y_true = [], []
-        for _, (_, inputs, targets) in enumerate(loader):
-            inputs = inputs.to(self._device)
-            with torch.no_grad():
-                logits = model(inputs)["logits"]
-
-            predicts = torch.topk(
-                logits, k=self.topk, dim=1, largest=True, sorted=True
-            )[
-                1
-            ]  # [bs, topk]
-            y_pred.append(predicts.cpu().numpy())
-            y_true.append(targets.numpy())
-
-        return np.concatenate(y_pred), np.concatenate(y_true)  # [N, topk]
-
-    def _eval_ncm(self, model, loader):
-        model.eval()
-        y_pred, y_true = [], []
-        for _, (_, inputs, targets) in enumerate(loader):
-            inputs = inputs.to(self._device)
-            with torch.no_grad():
-                features = model(inputs)["features"]
-            logits = self._compute_ncm_logits(
-                features, torch.from_numpy(np.array(self._means)).to(self._device)
+    def _compute_means(self, use_reprojector=False):
+        for class_idx in range(self._known_classes, self._total_classes):
+            idx_dataset = self.data_manager.get_dataset(
+                np.arange(class_idx, class_idx + 1), source="train", mode="test"
             )
-
-            predicts = torch.topk(
-                logits, k=self.topk, dim=1, largest=True, sorted=True
-            )[
-                1
-            ]  # [bs, topk]
-            y_pred.append(predicts.cpu().numpy())
-            y_true.append(targets.numpy())
-
-        return np.concatenate(y_pred), np.concatenate(y_true)  # [N, topk]
+            idx_loader = DataLoader(
+                idx_dataset,
+                batch_size=self.args["batch_size"],
+                shuffle=False,
+                num_workers=self.args["num_workers"],
+                pin_memory=self.args["pin_memory"],
+            )
+            vectors, _ = self._extract_vectors(
+                idx_loader, use_reprojector=use_reprojector
+            )
+            class_mean = np.mean(vectors, axis=0, keepdims=True)  # [1 * feature_dim]
+            class_std = np.std(vectors, axis=0, keepdims=True)  # [1 * feature_dim]
+            if self._means is None:
+                self._means = class_mean
+                self._stds = class_std
+            else:
+                self._means = np.concatenate((self._means, class_mean), axis=0)
+                self._stds = np.concatenate((self._stds, class_std), axis=0)
+    """
 
     def _momentum_update_head(self, old_head, momentum):
         # except wight and bias of new classes in fc
@@ -529,17 +437,7 @@ class Momentum(BaseLearner):
         features += refer_bias[random_idxs]
         return features, labels
 
-    def _layernorm(self, x, eps=1e-05):
-        """
-        :param x: Tensor of [n, dim]
-        :param eps: same as torch.nn.LayerNorm
-        """
-        mean = torch.mean(x, dim=1, keepdim=True)
-        std = torch.std(x, dim=1, keepdim=True)
-        x = (x - mean) / (std + eps)
-        return x
-
-    def _save_all(self):
+    def _save_model(self, filename: str):
         self._network.cpu()
         saved_dict = {
             "task_id": self._cur_task,
@@ -547,10 +445,8 @@ class Momentum(BaseLearner):
             "means": self._means,
             "stds": self._stds,
         }
-        folder_path = "./saved"
-        if not os.path.exists(folder_path):
-            os.makedirs(folder_path)
-        saved_path = os.path.join(folder_path, self._saved_prefix + "_all.pkl")
+        saved_path = os.path.join(self._saved_folder, filename)
+        logging.info("Save model to {}".format(saved_path))
         torch.save(saved_dict, saved_path)
 
 

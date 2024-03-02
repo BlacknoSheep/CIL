@@ -1,7 +1,6 @@
 {
-  "prefix": "e250+50",
+  "prefix": "joint-f",
   "dataset": "cifar100",
-  "memory_size": 0,
   "shuffle": true,
   "init_cls": 50,
   "increment": 10,
@@ -19,7 +18,5 @@
   "batch_size": 128,
   "num_workers": 8,
   "pin_memory": true,
-  "T": 2,
-  "reprojector": false,
   "freeze_convnet": true
 }

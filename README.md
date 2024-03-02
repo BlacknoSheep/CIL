@@ -24,7 +24,16 @@ python main.py --config=exps/momentum.json
 - `init_cls`: The number of classes in the initial stage.
 - `increment`: The number of classes in each incremental stage.
 - `initial_model_path`: If set, the initial stage will be skipped. Instead, the model will load weights from this path. It will be helpful when only parameters of incremental stages are changed.
+- `ncm_type`: The way to calculate ncm distance.
+  - `"euclidean"` (default)
+  - `"cosine"`
+
 - `reprojector`: Whether to use feature reprojection.
+  - `"layernorm"` (default)
+  - `"batchnorm"`
+  - `"l2norm"`
+
+- `affine`: Whether to use learnable per-element affine parameters in reprojector.
 - `momentum`: Rate of Weight Fusion.
 - `generator`: How to generate the fake feature vectors of old classes. Choose from `oversampling`, `translation`, and `noise`.
 
