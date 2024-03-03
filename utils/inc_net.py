@@ -49,7 +49,7 @@ class L2norm(nn.Module):
         self,
         num_features,
         eps=1e-12,
-        elementwise_affine=False,
+        affine=False,
         bias=True,
         device=None,
         dtype=None,
@@ -58,7 +58,7 @@ class L2norm(nn.Module):
         factory_kwargs = {"device": device, "dtype": dtype}
         self.num_features = num_features
         self.eps = eps
-        self.elementwise_affine = elementwise_affine
+        self.elementwise_affine = affine
         if self.elementwise_affine:
             self.weight = nn.Parameter(torch.empty(self.num_features, **factory_kwargs))
             if bias:

@@ -38,13 +38,14 @@ class BaseLearner(object):
         )
         self.topk = 5
 
-        self._saved_folder = "saved/{}_{}_{}/{}_{}_{}".format(
-            self.args["prefix"],
-            self.args["model_name"],
-            self.args["convnet_type"],
-            self.args["dataset"],
-            self.args["init_cls"],
-            self.args["increment"],
+        self._saved_folder = "saved/{}/{}_b{}inc{}/{}_{}_s{}".format(
+            args["model_name"],
+            args["dataset"],
+            args["init_cls"],
+            args["increment"],
+            args["prefix"],
+            args["convnet_type"],
+            args["seed"],
         )
         if not os.path.exists(self._saved_folder):
             os.makedirs(self._saved_folder)
@@ -56,8 +57,8 @@ class BaseLearner(object):
     def after_task(self):
         self._known_classes = self._total_classes
 
-        # save the final model
-        self._save_model("all.pkl")
+        # save the newest model
+        self._save_model("newest.pkl")
 
     def incremental_train(self, data_manager):
         self.data_manager = data_manager
