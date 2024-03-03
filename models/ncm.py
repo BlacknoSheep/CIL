@@ -25,11 +25,16 @@ class MainNet(nn.Module):
         self.head = FcHead(self.feature_dim, args["init_cls"])
 
     def forward(self, x):
-        x = self.convnet(x)["features"]
-        if self.reprojector is not None:
-            x = self.reprojector(x)["features"]
-        logits = self.head(x)["logits"]
-        return {"features": x, "logits": logits}
+        """
+        !!!: 返回的是重投影前的特征
+        """
+        features = self.convnet(x)["features"]
+        if self.reprojector is None:
+            x = self.head(features)["logits"]
+        else:
+            x = self.reprojector(features)["features"]
+            x = self.head(x)["logits"]
+        return {"features": features, "logits": x}
 
     def update_head(self, total_classes):
         self.head.update_fc(total_classes)
@@ -40,8 +45,8 @@ class NCM(BaseLearner):
         super().__init__(args)
         self.args = args
         self._network = MainNet(args)
-        self._means = None
-        self._stds = None
+        self._means: torch.Tensor = None
+        self._stds: torch.Tensor = None
 
     def incremental_train(self, data_manager):
         self.data_manager = data_manager
@@ -214,6 +219,24 @@ class NCM(BaseLearner):
             np.save(_target_path, y_true)
 
         return {"ncm_accy": ncm_accy}
+
+    def _compute_ncm_logits(
+        self, features: torch.Tensor, means: torch.Tensor, ncm_type="euclidean"
+    ):
+        """
+        若有重投影，则使用重投影后的特征计算距离
+        """
+        if self.args["reprojector"] is not None:
+            self._network.reprojector.eval()
+            features = features.to(self._device)
+            means = means.to(self._device)
+            with torch.no_grad():
+                features = (
+                    self._network.reprojector(features)["features"].detach().cpu()
+                )
+                means = self._network.reprojector(means)["features"].detach().cpu()
+
+        return super()._compute_ncm_logits(features, means, ncm_type)
 
     def _save_model(self, filename: str):
         self._network.cpu()

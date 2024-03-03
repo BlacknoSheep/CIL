@@ -33,9 +33,10 @@ class BaseLearner(object):
         self._multiple_gpus = args["device"]
 
         self._network = MainNet(args)
-        self._means = (
-            None  # [n_classes, feature_dim] of ndarray，类中心，若存在，则计算NCM
+        self._means: torch.Tensor = (
+            None  # [n_classes, feature_dim] of Tensor，类中心，若存在，则计算NCM
         )
+
         self.topk = 5
 
         self._saved_folder = "saved/{}/{}_b{}inc{}/{}_{}_s{}".format(
@@ -79,23 +80,25 @@ class BaseLearner(object):
     def _train(self):
         pass
 
-    def _extract_vectors(self, loader):
+    def _extract_features(self, loader):
         self._network.eval()
-        vectors, targets = [], []
+        features, targets = [], []
         for _, _inputs, _targets in loader:
             _inputs = _inputs.to(self._device)
             with torch.no_grad():
-                _vectors = self._network(_inputs)["features"]
+                _features = self._network(_inputs)["features"]
 
-            vectors.append(_vectors.cpu().numpy())
-            targets.append(_targets.numpy())
-
-        return np.concatenate(vectors), np.concatenate(targets)
+            features.append(_features.detach().cpu())
+            targets.append(_targets)
+        features = torch.cat(features, dim=0)  # [N, feature_dim]
+        targets = torch.cat(targets, dim=0)  # [N]
+        return features, targets
 
     def _compute_means(self):
         """
-        计算每个类的特征向量的均值和标准差（训练集）
+        计算新类的特征向量的均值和标准差（训练集）
         """
+        assert self._means.size(0) == self._known_classes, "Error: means size mismatch"
         for class_idx in range(self._known_classes, self._total_classes):
             idx_dataset = self.data_manager.get_dataset(
                 np.arange(class_idx, class_idx + 1), source="train", mode="test"
@@ -106,15 +109,19 @@ class BaseLearner(object):
                 shuffle=False,
                 num_workers=self.args["num_workers"],
             )
-            vectors, _ = self._extract_vectors(idx_loader)
-            class_mean = np.mean(vectors, axis=0, keepdims=True)  # [1 * feature_dim]
-            class_std = np.std(vectors, axis=0, keepdims=True)  # [1 * feature_dim]
+            features, _ = self._extract_features(idx_loader)
+            class_mean = features.mean(dim=0, keepdim=True)  # [1, feature_dim]
+            class_std = features.std(dim=0, keepdim=True)  # [1, feature_dim]
             if self._means is None:
                 self._means = class_mean
                 self._stds = class_std
             else:
-                self._means = np.concatenate((self._means, class_mean), axis=0)
-                self._stds = np.concatenate((self._stds, class_std), axis=0)
+                self._means = torch.cat(
+                    [self._means, class_mean], dim=0
+                )  # [n_classes, feature_dim]
+                self._stds = torch.cat(
+                    [self._stds, class_std], dim=0
+                )  # [n_classes, feature_dim]
 
     def _compute_accuracy(self, model, loader):
         model.eval()
@@ -201,7 +208,7 @@ class BaseLearner(object):
                 features = self._network(inputs)["features"]
             logits = self._compute_ncm_logits(
                 features,
-                torch.from_numpy(np.array(self._means)).to(self._device),
+                self._means.to(self._device),
                 ncm_type=ncm_type,
             )
 
@@ -215,10 +222,12 @@ class BaseLearner(object):
 
         return np.concatenate(y_pred), np.concatenate(y_true)  # [N, topk]
 
-    def _compute_ncm_logits(self, features, means, ncm_type="euclidean"):
+    def _compute_ncm_logits(
+        self, features: torch.Tensor, means: torch.Tensor, ncm_type="euclidean"
+    ):
         """
-        :param features: Tensor of [n, feature_dim]
-        :param means: Tensor of [n_classes, feature_dim]
+        features: [n, feature_dim]
+        means: [n_classes, feature_dim]
         """
         if ncm_type == "cosine":
             # normalize features

@@ -4,17 +4,17 @@ from trainer import train
 
 
 def main():
-    args = setup_parser().parse_args()
-    param = load_json(args.config)
-    args = vars(args)  # Converting argparse Namespace to a dict.
-    # args.update(param)  # Add parameters from json
+    cmd_args = setup_parser().parse_args()
+    cmd_args = vars(cmd_args)  # Converting argparse Namespace to a dict.
+    cmd_args = {
+        k: v for k, v in cmd_args.items() if v is not None
+    }  # Remove None values.
 
+    json_args = load_json(cmd_args["config"])
     # Overwrite parameters by command line arguments.
-    args = {k: v for k, v in args.items() if v is not None}
-    param.update(args)
-    args = param
+    json_args.update(cmd_args)
 
-    train(args)
+    train(json_args)
 
 
 def load_json(settings_path):
@@ -25,15 +25,29 @@ def load_json(settings_path):
 
 
 def setup_parser():
-    parser = argparse.ArgumentParser(description='Reproduce of multiple continual learning algorthms.')
-    parser.add_argument('--config', type=str, default='./exps/finetune.json',
-                        help='Json file of settings.')
+    parser = argparse.ArgumentParser(
+        description="Reproduce of multiple continual learning algorthms."
+    )
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="./exps/finetune.json",
+        help="Json file of settings.",
+    )
 
-    parser.add_argument('--init_cls', type=int)
-    parser.add_argument('--increment', type=int)
+    parser.add_argument("--prefix", type=str)
+    parser.add_argument("--dataset", type=str)
+    parser.add_argument("--init_cls", type=int)
+    parser.add_argument("--increment", type=int)
+    parser.add_argument("--model_name", type=str)
+    parser.add_argument("--initial_model_path", type=str | None)
+    parser.add_argument("--reprojector", type=str | None)
+    parser.add_argument("--affine", type=bool)
+    parser.add_argument("--momentum", type=float)
+    parser.add_argument("--generator", type=str)
 
     return parser
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

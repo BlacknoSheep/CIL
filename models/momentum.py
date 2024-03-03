@@ -26,11 +26,16 @@ class MainNet(nn.Module):
         self.head = FcHead(self.feature_dim, args["init_cls"])
 
     def forward(self, x):
-        x = self.convnet(x)["features"]
-        if self.reprojector is not None:
-            x = self.reprojector(x)["features"]
-        logits = self.head(x)["logits"]
-        return {"features": x, "logits": logits}
+        """
+        !!!: 返回的是重投影前的特征
+        """
+        features = self.convnet(x)["features"]
+        if self.reprojector is None:
+            x = self.head(features)["logits"]
+        else:
+            x = self.reprojector(features)["features"]
+            x = self.head(x)["logits"]
+        return {"features": features, "logits": x}
 
     def update_head(self, total_classes):
         self.head.update_fc(total_classes)
@@ -41,8 +46,8 @@ class Momentum(BaseLearner):
         super().__init__(args)
         self.args = args
         self._network = MainNet(args)
-        self._means = None
-        self._stds = None
+        self._means: torch.Tensor = None
+        self._stds: torch.Tensor = None
 
     def incremental_train(self, data_manager):
         self.data_manager = data_manager
@@ -226,7 +231,7 @@ class Momentum(BaseLearner):
         test_dataset = self._build_feature_dataset(original_test_loader, mode="test")
         test_loader = DataLoader(
             test_dataset,
-            batch_size=self.args["batch_size"],
+            batch_size=self.args["batch_size"] * 4,
             shuffle=False,
             num_workers=self.args["num_workers"],
             pin_memory=self.args["pin_memory"],
@@ -244,7 +249,7 @@ class Momentum(BaseLearner):
             )
             train_loader = DataLoader(
                 train_dataset,
-                batch_size=self.args["batch_size"],
+                batch_size=self.args["batch_size"] * 4,
                 shuffle=True,
                 num_workers=self.args["num_workers"],
                 pin_memory=self.args["pin_memory"],
@@ -263,6 +268,8 @@ class Momentum(BaseLearner):
                 # old_head = copy.deepcopy(self._network.head)
 
                 inputs, targets = inputs.to(self._device), targets.to(self._device)
+                if self.args["reprojector"] is not None:
+                    inputs = self._network.reprojector(inputs)["features"]
                 logits = self._network.head(inputs)["logits"]
                 loss = F.cross_entropy(logits, targets)
 
@@ -315,47 +322,6 @@ class Momentum(BaseLearner):
         # momentum update after each task
         # self._momentum_update_head(old_head, momentum=self.args["momentum"])
 
-    """
-    def _extract_vectors(self, loader, use_reprojector=False):
-        self._network.eval()
-        vectors, targets = [], []
-        for _, _inputs, _targets in loader:
-            _inputs = _inputs.to(self._device)
-            with torch.no_grad():
-                _vectors = self._network.convnet(_inputs)["features"]
-                if use_reprojector:
-                    _vectors = self._network.reprojector(_vectors)["features"]
-
-            vectors.append(_vectors.cpu().numpy())
-            targets.append(_targets.numpy())
-
-        return np.concatenate(vectors), np.concatenate(targets)
-
-    def _compute_means(self, use_reprojector=False):
-        for class_idx in range(self._known_classes, self._total_classes):
-            idx_dataset = self.data_manager.get_dataset(
-                np.arange(class_idx, class_idx + 1), source="train", mode="test"
-            )
-            idx_loader = DataLoader(
-                idx_dataset,
-                batch_size=self.args["batch_size"],
-                shuffle=False,
-                num_workers=self.args["num_workers"],
-                pin_memory=self.args["pin_memory"],
-            )
-            vectors, _ = self._extract_vectors(
-                idx_loader, use_reprojector=use_reprojector
-            )
-            class_mean = np.mean(vectors, axis=0, keepdims=True)  # [1 * feature_dim]
-            class_std = np.std(vectors, axis=0, keepdims=True)  # [1 * feature_dim]
-            if self._means is None:
-                self._means = class_mean
-                self._stds = class_std
-            else:
-                self._means = np.concatenate((self._means, class_mean), axis=0)
-                self._stds = np.concatenate((self._stds, class_std), axis=0)
-    """
-
     def _momentum_update_head(self, old_head, momentum):
         # except wight and bias of new classes in fc
         old_head.fc.weight.data[self._known_classes :] = (
@@ -376,7 +342,7 @@ class Momentum(BaseLearner):
         :param loader: DataLoader of new classes
         :param mode: "train" or "test"
         """
-        features, targets = self._extract_vectors(loader)
+        features, targets = self._extract_features(loader)
         if mode == "train":
             # generate fake old features
             n_per_class = targets.shape[0] // self._new_classes
@@ -395,47 +361,66 @@ class Momentum(BaseLearner):
                     "Unknown generator: {}".format(self.args["generator"])
                 )
 
-            features = np.concatenate(
-                (features, old_features), axis=0, dtype=np.float32
-            )
-            targets = np.concatenate((targets, old_targets), axis=0)
+            features = torch.cat([old_features, features], dim=0)
+            targets = torch.cat([old_targets, targets], dim=0)
         elif mode == "test":
             pass
-        return DummyDataset(torch.from_numpy(features), torch.from_numpy(targets))
+        return DummyDataset(features, targets)
 
     def _generate_by_oversampling(self, n_per_class):
-        features = self._means[: self._known_classes]  # e.g: [0,1,2]
-        features = np.repeat(features, n_per_class, axis=0)  # e.g: [0,0,1,1,2,2]
-        labels = np.arange(self._known_classes)  # e.g: [0,1,2]
-        labels = np.repeat(labels, n_per_class, axis=0)  # e.g: [0,0,1,1,2,2]
+        features = self._means[0 : self._known_classes]  # e.g: [[0,0],[1,1]]
+        features = features.repeat(n_per_class, 1)  # e.g: [[0,0],[1,1],[0,0],[1,1]]
+        labels = torch.arange(0, self._known_classes)  # e.g: [0,1]
+        labels = labels.repeat(n_per_class)  # e.g: [0,1,0,1]
         return features, labels
 
     def _generate_by_noise(self, n_per_class):
-        features = self._means[: self._known_classes]  # e.g: [0,1,2]
-        stds = self._stds[: self._known_classes]  # e.g: [0,1,2]
+        features = self._means[0 : self._known_classes]  # e.g: [[0,0],[1,1]]
+        stds = self._stds[0 : self._known_classes]  # e.g: [[0,0],[1,1]]
+        features = features.repeat(n_per_class, 1)  # e.g: [[0,0],[1,1],[0,0],[1,1]]
+        stds = stds.repeat(n_per_class, 1)  # e.g: [[0,0],[1,1],[0,0],[1,1]]
         # sample from normal (Gaussian) distribution
-        features = np.random.normal(
-            features, stds, size=(n_per_class, *features.shape)
-        )  # e.g: [[0,1,2],[0,1,2]]
-        features = np.concatenate(features, axis=0)  # e.g: [0,1,2,0,1,2]
-        labels = np.arange(self._known_classes)  # e.g: [0,1,2]
-        labels = np.tile(labels, n_per_class)  # e.g: [0,1,2,0,1,2]
+        features = torch.normal(features, stds)  # e.g: [[0,0],[1,1],[0,0],[1,1]]
+        labels = torch.arange(0, self._known_classes)  # e.g: [0,1]
+        labels = labels.repeat(n_per_class)  # e.g: [0,1,0,1]
         return features, labels
 
-    def _generate_by_translation(self, refer_features, refer_labels, n_per_class):
+    def _generate_by_translation(
+        self, refer_features: torch.Tensor, refer_labels: torch.Tensor, n_per_class: int
+    ):
         """
-        refer_features: ndarray of [n, feature_dim]
-        refer_labels: ndarray of [n]
+        refer_features: Tensor of [n_refer, feature_dim]
+        refer_labels: Tensor of [n_refer]
         """
-        refer_means = self._means[refer_labels]
-        refer_bias = refer_features - refer_means
-        random_idxs = np.random.randint(
-            0, refer_bias.shape[0], size=self._known_classes * n_per_class
-        )
+        refer_means = self._means[refer_labels]  # [n_refer, feature_dim]
+        refer_bias = refer_features - refer_means  # [n_refer, feature_dim]
+        random_idxs = torch.randint(
+            0, refer_bias.shape[0], (self._known_classes * n_per_class,)
+        )  # [n]
 
-        features, labels = self._generate_by_oversampling(n_per_class)
-        features += refer_bias[random_idxs]
+        features, labels = self._generate_by_oversampling(
+            n_per_class
+        )  # [n, feature_dim], [n]
+        features += refer_bias[random_idxs]  # [n, feature_dim]
         return features, labels
+
+    def _compute_ncm_logits(
+        self, features: torch.Tensor, means: torch.Tensor, ncm_type="euclidean"
+    ):
+        """
+        若有重投影，则使用重投影后的特征计算距离
+        """
+        if self.args["reprojector"] is not None:
+            self._network.reprojector.eval()
+            features = features.to(self._device)
+            means = means.to(self._device)
+            with torch.no_grad():
+                features = (
+                    self._network.reprojector(features)["features"].detach().cpu()
+                )
+                means = self._network.reprojector(means)["features"].detach().cpu()
+
+        return super()._compute_ncm_logits(features, means, ncm_type)
 
     def _save_model(self, filename: str):
         self._network.cpu()

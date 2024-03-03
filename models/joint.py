@@ -19,9 +19,9 @@ class MainNet(nn.Module):
         self.head = FcHead(self.feature_dim, args["init_cls"])
 
     def forward(self, x):
-        x = self.convnet(x)["features"]
-        logits = self.head(x)["logits"]
-        return {"features": x, "logits": logits}
+        features = self.convnet(x)["features"]
+        x = self.head(features)["logits"]
+        return {"features": features, "logits": x}
 
     def update_head(self, total_classes):
         self.head.update_fc(total_classes)
@@ -166,7 +166,7 @@ class Joint(BaseLearner):
             correct, total = 0, 0
             for _, inputs, targets in train_loader:
                 inputs, targets = inputs.to(self._device), targets.to(self._device)
-                logits = self._network(inputs)
+                logits = self._network(inputs)["logits"]
 
                 loss = F.cross_entropy(logits, targets)
                 optimizer.zero_grad()
@@ -215,14 +215,7 @@ class Joint(BaseLearner):
             correct_new, total_new = 0, 0
             for _, inputs, targets in train_loader:
                 inputs, targets = inputs.to(self._device), targets.to(self._device)
-
-                if self.args["freeze_convnet"]:
-                    with torch.no_grad():
-                        features = self._network.convnet(inputs)["features"]
-                else:
-                    features = self._network.convnet(inputs)["features"]
-
-                logits = self._network.head(features)["logits"]
+                logits = self._network(inputs)["logits"]
                 loss = F.cross_entropy(logits, targets)
 
                 optimizer.zero_grad()
