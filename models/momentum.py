@@ -323,6 +323,9 @@ class Momentum(BaseLearner):
         # self._momentum_update_head(old_head, momentum=self.args["momentum"])
 
     def _momentum_update_head(self, old_head, momentum):
+        if momentum == 0:
+            return
+
         # except wight and bias of new classes in fc
         old_head.fc.weight.data[self._known_classes :] = (
             self._network.head.fc.weight.data[self._known_classes :]
@@ -337,7 +340,7 @@ class Momentum(BaseLearner):
                 1.0 - momentum
             )
 
-    def _build_feature_dataset(self, loader, mode):
+    def _build_feature_dataset(self, loader, mode: str):
         """
         :param loader: DataLoader of new classes
         :param mode: "train" or "test"
@@ -415,10 +418,8 @@ class Momentum(BaseLearner):
             features = features.to(self._device)
             means = means.to(self._device)
             with torch.no_grad():
-                features = (
-                    self._network.reprojector(features)["features"].detach().cpu()
-                )
-                means = self._network.reprojector(means)["features"].detach().cpu()
+                features = self._network.reprojector(features)["features"]
+                means = self._network.reprojector(means)["features"]
 
         return super()._compute_ncm_logits(features, means, ncm_type)
 

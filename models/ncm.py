@@ -231,10 +231,8 @@ class NCM(BaseLearner):
             features = features.to(self._device)
             means = means.to(self._device)
             with torch.no_grad():
-                features = (
-                    self._network.reprojector(features)["features"].detach().cpu()
-                )
-                means = self._network.reprojector(means)["features"].detach().cpu()
+                features = self._network.reprojector(features)["features"]
+                means = self._network.reprojector(means)["features"]
 
         return super()._compute_ncm_logits(features, means, ncm_type)
 

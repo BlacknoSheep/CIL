@@ -31,8 +31,8 @@ def setup_parser():
     parser.add_argument(
         "--config",
         type=str,
-        default="./exps/finetune.json",
         help="Json file of settings.",
+        required=True,
     )
 
     parser.add_argument("--prefix", type=str)
@@ -40,8 +40,8 @@ def setup_parser():
     parser.add_argument("--init_cls", type=int)
     parser.add_argument("--increment", type=int)
     parser.add_argument("--model_name", type=str)
-    parser.add_argument("--initial_model_path", type=str | None)
-    parser.add_argument("--reprojector", type=str | None)
+    parser.add_argument("--initial_model_path", type=str)
+    parser.add_argument("--reprojector", type=str)
     parser.add_argument("--affine", type=bool)
     parser.add_argument("--momentum", type=float)
     parser.add_argument("--generator", type=str)

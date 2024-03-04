@@ -81,6 +81,9 @@ class BaseLearner(object):
         pass
 
     def _extract_features(self, loader):
+        """
+        提取的特征向量在cpu上
+        """
         self._network.eval()
         features, targets = [], []
         for _, _inputs, _targets in loader:
@@ -98,7 +101,10 @@ class BaseLearner(object):
         """
         计算新类的特征向量的均值和标准差（训练集）
         """
-        assert self._means.size(0) == self._known_classes, "Error: means size mismatch"
+        if self._means is not None:
+            assert (
+                self._means.size(0) == self._known_classes
+            ), "Error: means size mismatch"
         for class_idx in range(self._known_classes, self._total_classes):
             idx_dataset = self.data_manager.get_dataset(
                 np.arange(class_idx, class_idx + 1), source="train", mode="test"
@@ -128,10 +134,11 @@ class BaseLearner(object):
         correct, total = 0, 0
         for _, inputs, targets in loader:
             inputs = inputs.to(self._device)
+            targets = targets.to(self._device)
             with torch.no_grad():
                 outputs = model(inputs)["logits"]
             predicts = torch.max(outputs, dim=1)[1]
-            correct += torch.sum(torch.eq(predicts.cpu(), targets)).item()
+            correct += torch.sum(torch.eq(predicts, targets)).item()
             total += len(targets)
 
         return np.around(correct * 100 / total, decimals=2)
