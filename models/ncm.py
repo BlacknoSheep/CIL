@@ -28,12 +28,11 @@ class MainNet(nn.Module):
         """
         !!!: 返回的是重投影前的特征
         """
-        features = self.convnet(x)["features"]
-        if self.reprojector is None:
-            x = self.head(features)["logits"]
-        else:
-            x = self.reprojector(features)["features"]
-            x = self.head(x)["logits"]
+        x = self.convnet(x)["features"]
+        features = x
+        if self.reprojector is not None:
+            x = self.reprojector(x)["features"]
+        x = self.head(x)["logits"]
         return {"features": features, "logits": x}
 
     def update_head(self, total_classes):

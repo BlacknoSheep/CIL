@@ -1,5 +1,5 @@
 {
-  "prefix": "R-NCM",
+  "prefix": "RNCM",
   "dataset": "cifar100",
   "shuffle": true,
   "init_cls": 50,

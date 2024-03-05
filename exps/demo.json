@@ -1,10 +1,10 @@
 {
-  "prefix": "FRWF",
+  "prefix": "FA",
   "dataset": "cifar100",
   "shuffle": true,
   "init_cls": 50,
   "increment": 10,
-  "model_name": "momentum",
+  "model_name": "demo",
   "convnet_type": "resnet18",
   "initial_model_path": null,
   "device": ["0"],
@@ -21,6 +21,8 @@
   "ncm_type": "euclidean",
   "reprojector": "layernorm",
   "affine": false,
-  "momentum": 0.99,
+  "feature_augment": false,
+  "dropout": 0.0,
+  "temperture": 1.0,
   "generator": "noise"
 }

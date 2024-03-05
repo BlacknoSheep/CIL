@@ -1,7 +1,6 @@
 import logging
 import numpy as np
 import torch
-import copy
 import os
 from torch import nn
 from tqdm import tqdm
@@ -18,6 +17,7 @@ class MainNet(nn.Module):
         super().__init__()
         self.convnet = get_convnet(args, pretrained)
         self.feature_dim = self.convnet.out_dim
+        self.dropout = nn.Dropout(args["dropout"]) if args["dropout"] > 0 else None
         self.reprojector = None
         if args["reprojector"] is not None:
             self.reprojector = Reprojector(
@@ -32,6 +32,8 @@ class MainNet(nn.Module):
         if x_type != "feature":
             x = self.convnet(x)["features"]
         features = x
+        if self.dropout is not None:
+            x = self.dropout(x)
         if self.reprojector is not None:
             x = self.reprojector(x)["features"]
         x = self.head(x)["logits"]
@@ -41,11 +43,30 @@ class MainNet(nn.Module):
         self.head.update_fc(total_classes)
 
 
-class Momentum(BaseLearner):
+class FeatureAugmentNet(nn.Module):
+    def __init__(self, feature_dim):
+        super().__init__()
+        self.feature_dim = feature_dim
+        self.fc = nn.Linear(feature_dim, feature_dim)
+        self.relu = nn.ReLU(inplace=True)
+
+    def forward(self, x):
+        m = self.fc(x)
+        m = self.relu(m)  # 控制噪声幅度
+        noise = torch.normal(0, 1, x.shape).to(x.device)
+        x = x + m * noise
+        return {"features": x}
+
+
+class Demo(BaseLearner):
     def __init__(self, args):
         super().__init__(args)
         self.args = args
+        self._T = args["temperture"]
         self._network = MainNet(args)
+        self._FA = None
+        if self.args["feature_augment"]:
+            self._FA = FeatureAugmentNet(self._network.feature_dim)
         self._means: torch.Tensor = None
         self._stds: torch.Tensor = None
 
@@ -177,6 +198,14 @@ class Momentum(BaseLearner):
             )
 
     def _init_train(self, train_loader, test_loader, optimizer, scheduler, epochs):
+        if self._FA is not None:
+            self._FA.to(self._device, non_blocking=True)
+            FA_optimizer = optim.SGD(
+                self._FA.parameters(),
+                lr=0.1,
+                momentum=0.9,
+            )
+
         prog_bar = tqdm(range(epochs))
         for i in prog_bar:
             epoch = i + 1
@@ -185,12 +214,21 @@ class Momentum(BaseLearner):
             correct, total = 0, 0
             for _, inputs, targets in train_loader:
                 inputs, targets = inputs.to(self._device), targets.to(self._device)
-                logits = self._network(inputs)["logits"]
+                features = self._network.convnet(inputs)["features"]
+
+                if self._FA is not None:
+                    augment_features = self._FA(features)["features"]
+                    features = torch.cat([features, augment_features], dim=0)
+                    targets = torch.cat([targets, targets], dim=0)
+
+                logits = self._network(features, x_type="feature")["logits"]
 
                 loss = F.cross_entropy(logits, targets)
                 optimizer.zero_grad()
+                FA_optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
+                FA_optimizer.step()
                 losses += loss.item()
 
                 preds = torch.max(logits, dim=1)[1]
@@ -222,6 +260,9 @@ class Momentum(BaseLearner):
             prog_bar.set_description(info)
             logging.info(info)
 
+        # 初始化阶段结束，移除特征增强器
+        self._FA = None
+
     def _next_train(self, train_loader, test_loader, optimizer, scheduler, epochs):
         # save original train_loader and test_loader, which contains input images
         original_train_loader = train_loader
@@ -236,9 +277,6 @@ class Momentum(BaseLearner):
             num_workers=self.args["num_workers"],
             pin_memory=self.args["pin_memory"],
         )
-
-        # momentum update after each task
-        # old_head = copy.deepcopy(self._network.head)
 
         prog_bar = tqdm(range(epochs))
         for i in prog_bar:
@@ -255,18 +293,12 @@ class Momentum(BaseLearner):
                 pin_memory=self.args["pin_memory"],
             )
 
-            # momentum update after each epoch
-            old_head = copy.deepcopy(self._network.head)
-
             self._network.train()
             self._network.convnet.eval()
             losses = 0.0
             correct, total = 0, 0
             correct_new, total_new = 0, 0
             for _, inputs, targets in train_loader:
-                # momentum update after each step
-                # old_head = copy.deepcopy(self._network.head)
-
                 inputs, targets = inputs.to(self._device), targets.to(self._device)
                 logits = self._network(inputs, x_type="feature")["logits"]
                 loss = F.cross_entropy(logits, targets)
@@ -284,12 +316,6 @@ class Momentum(BaseLearner):
                 new_mask = targets >= self._known_classes
                 correct_new += torch.sum(result[new_mask]).item()
                 total_new += torch.sum(new_mask).item()
-
-                # momentum update after each step
-                # self._momentum_update_head(old_head, momentum=self.args["momentum"])
-
-            # momentum update after each epoch
-            self._momentum_update_head(old_head, momentum=self.args["momentum"])
 
             scheduler.step()
             train_acc = np.around(correct * 100 / total, decimals=2)
@@ -318,27 +344,6 @@ class Momentum(BaseLearner):
                 )
             prog_bar.set_description(info)
             logging.info(info)
-
-        # momentum update after each task
-        # self._momentum_update_head(old_head, momentum=self.args["momentum"])
-
-    def _momentum_update_head(self, old_head, momentum):
-        if momentum == 0:
-            return
-
-        # except wight and bias of new classes in fc
-        old_head.fc.weight.data[self._known_classes :] = (
-            self._network.head.fc.weight.data[self._known_classes :]
-        )
-        old_head.fc.bias.data[self._known_classes :] = self._network.head.fc.bias.data[
-            self._known_classes :
-        ]
-        for param_new, param_old in zip(
-            self._network.head.parameters(), old_head.parameters()
-        ):
-            param_new.data = param_old.data * momentum + param_new.data * (
-                1.0 - momentum
-            )
 
     def _compute_accuracy(self, model, loader, data_type="image"):
         model.eval()
