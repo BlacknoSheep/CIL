@@ -1,5 +1,5 @@
 {
-  "prefix": "RNCM",
+  "prefix": "ncm",
   "dataset": "cifar100",
   "shuffle": true,
   "init_cls": 50,
@@ -16,6 +16,6 @@
   "num_workers": 8,
   "pin_memory": true,
   "ncm_type": "euclidean",
-  "reprojector": "layernorm",
+  "reprojector": null,
   "affine": false
 }

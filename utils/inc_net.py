@@ -100,6 +100,8 @@ class Reprojector(nn.Module):
             self.reprojector = nn.BatchNorm1d(self.in_dim, affine=affine)
         elif self.name == "l2norm":
             self.reprojector = L2norm(self.in_dim, affine=affine)
+        else:
+            raise NotImplementedError("Unknown reprojector type {}".format(self.name))
 
     def forward(self, x):
         """

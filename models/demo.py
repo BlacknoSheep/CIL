@@ -6,8 +6,8 @@ from torch import nn
 from tqdm import tqdm
 from torch import optim
 from torch.nn import functional as F
-from torch.utils.data import Dataset, DataLoader
-from utils.inc_net import get_convnet, Reprojector, FcHead
+from torch.utils.data import DataLoader
+from utils.inc_net import get_convnet, FcHead
 from models.base import BaseLearner
 from torchvision import transforms
 
@@ -18,11 +18,6 @@ class MainNet(nn.Module):
         self.convnet = get_convnet(args, pretrained)
         self.feature_dim = self.convnet.out_dim
         self.dropout = nn.Dropout(args["dropout"]) if args["dropout"] > 0 else None
-        self.reprojector = None
-        if args["reprojector"] is not None:
-            self.reprojector = Reprojector(
-                args["reprojector"], self.feature_dim, affine=args["affine"]
-            )
         self.head = FcHead(self.feature_dim, args["init_cls"])
 
     def forward(self, x, x_type="image"):
@@ -34,8 +29,6 @@ class MainNet(nn.Module):
         features = x
         if self.dropout is not None:
             x = self.dropout(x)
-        if self.reprojector is not None:
-            x = self.reprojector(x)["features"]
         x = self.head(x)["logits"]
         return {"features": features, "logits": x}
 
@@ -180,23 +173,6 @@ class Demo(BaseLearner):
         else:
             self._compute_means()
 
-            optimizer = optim.SGD(
-                filter(lambda p: p.requires_grad, self._network.parameters()),
-                lr=self.args["lr"],
-                momentum=0.9,
-                weight_decay=self.args["weight_decay"],
-            )
-            scheduler = optim.lr_scheduler.CosineAnnealingLR(
-                optimizer=optimizer, T_max=self.args["epochs"]
-            )
-            self._next_train(
-                train_loader,
-                test_loader,
-                optimizer,
-                scheduler,
-                epochs=self.args["epochs"],
-            )
-
     def _init_train(self, train_loader, test_loader, optimizer, scheduler, epochs):
         if self._FA is not None:
             self._FA.to(self._device, non_blocking=True)
@@ -214,21 +190,24 @@ class Demo(BaseLearner):
             correct, total = 0, 0
             for _, inputs, targets in train_loader:
                 inputs, targets = inputs.to(self._device), targets.to(self._device)
-                features = self._network.convnet(inputs)["features"]
+                out = self._network(inputs)
+                features, logits = out["features"], out["logits"]
+                loss = F.cross_entropy(logits, targets)
 
                 if self._FA is not None:
                     augment_features = self._FA(features)["features"]
-                    features = torch.cat([features, augment_features], dim=0)
-                    targets = torch.cat([targets, targets], dim=0)
+                    logits_aug = self._network(augment_features, x_type="feature")[
+                        "logits"
+                    ]
+                    loss += F.cross_entropy(logits_aug / self._T, targets)
 
-                logits = self._network(features, x_type="feature")["logits"]
-
-                loss = F.cross_entropy(logits, targets)
                 optimizer.zero_grad()
-                FA_optimizer.zero_grad()
+                if self._FA is not None:
+                    FA_optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
-                FA_optimizer.step()
+                if self._FA is not None:
+                    FA_optimizer.step()
                 losses += loss.item()
 
                 preds = torch.max(logits, dim=1)[1]
@@ -263,185 +242,6 @@ class Demo(BaseLearner):
         # 初始化阶段结束，移除特征增强器
         self._FA = None
 
-    def _next_train(self, train_loader, test_loader, optimizer, scheduler, epochs):
-        # save original train_loader and test_loader, which contains input images
-        original_train_loader = train_loader
-        original_test_loader = test_loader
-
-        # build feature train_loader and test_loader, which contains features
-        test_dataset = self._build_feature_dataset(original_test_loader, mode="test")
-        test_loader = DataLoader(
-            test_dataset,
-            batch_size=self.args["batch_size"] * 4,
-            shuffle=False,
-            num_workers=self.args["num_workers"],
-            pin_memory=self.args["pin_memory"],
-        )
-
-        prog_bar = tqdm(range(epochs))
-        for i in prog_bar:
-            epoch = i + 1
-            # rebuild train_loader before each epoch to achieve more diversity
-            train_dataset = self._build_feature_dataset(
-                original_train_loader, mode="train"
-            )
-            train_loader = DataLoader(
-                train_dataset,
-                batch_size=self.args["batch_size"] * 4,
-                shuffle=True,
-                num_workers=self.args["num_workers"],
-                pin_memory=self.args["pin_memory"],
-            )
-
-            self._network.train()
-            self._network.convnet.eval()
-            losses = 0.0
-            correct, total = 0, 0
-            correct_new, total_new = 0, 0
-            for _, inputs, targets in train_loader:
-                inputs, targets = inputs.to(self._device), targets.to(self._device)
-                logits = self._network(inputs, x_type="feature")["logits"]
-                loss = F.cross_entropy(logits, targets)
-
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
-                losses += loss.item()
-
-                preds = torch.max(logits, dim=1)[1]
-                result = torch.eq(preds, targets)
-                correct += torch.sum(result).item()
-                total += len(targets)
-                # accuracy of new classes
-                new_mask = targets >= self._known_classes
-                correct_new += torch.sum(result[new_mask]).item()
-                total_new += torch.sum(new_mask).item()
-
-            scheduler.step()
-            train_acc = np.around(correct * 100 / total, decimals=2)
-            train_acc_new = np.around(correct_new * 100 / total_new, decimals=2)
-            if epoch % 5 == 0:
-                test_acc = self._compute_accuracy(
-                    self._network, test_loader, data_type="feature"
-                )
-                info = "Task {}, Epoch {}/{} => Loss {:.3f}, Train_accy {:.2f}, Train_accy_new {:.2f}, Test_accy {:.2f}".format(
-                    self._cur_task,
-                    epoch,
-                    epochs,
-                    losses / len(train_loader),
-                    train_acc,
-                    train_acc_new,
-                    test_acc,
-                )
-            else:
-                info = "Task {}, Epoch {}/{} => Loss {:.3f}, Train_accy {:.2f}, Train_accy_new {:.2f}".format(
-                    self._cur_task,
-                    epoch,
-                    epochs,
-                    losses / len(train_loader),
-                    train_acc,
-                    train_acc_new,
-                )
-            prog_bar.set_description(info)
-            logging.info(info)
-
-    def _compute_accuracy(self, model, loader, data_type="image"):
-        model.eval()
-        correct, total = 0, 0
-        for _, inputs, targets in loader:
-            inputs = inputs.to(self._device)
-            targets = targets.to(self._device)
-            with torch.no_grad():
-                outputs = model(inputs, x_type=data_type)["logits"]
-            predicts = torch.max(outputs, dim=1)[1]
-            correct += torch.sum(torch.eq(predicts, targets)).item()
-            total += len(targets)
-
-        return np.around(correct * 100 / total, decimals=2)
-
-    def _build_feature_dataset(self, loader, mode: str):
-        """
-        :param loader: DataLoader of new classes
-        :param mode: "train" or "test"
-        """
-        features, targets = self._extract_features(loader)
-        if mode == "train":
-            # generate fake old features
-            n_per_class = targets.shape[0] // self._new_classes
-            # print("Generate {} features for each old class".format(n_per_class))
-            # assert 0
-            if self.args["generator"] == "oversampling":
-                old_features, old_targets = self._generate_by_oversampling(n_per_class)
-            elif self.args["generator"] == "noise":
-                old_features, old_targets = self._generate_by_noise(n_per_class)
-            elif self.args["generator"] == "translation":
-                old_features, old_targets = self._generate_by_translation(
-                    features, targets, n_per_class
-                )
-            else:
-                raise NotImplementedError(
-                    "Unknown generator: {}".format(self.args["generator"])
-                )
-
-            features = torch.cat([old_features, features], dim=0)
-            targets = torch.cat([old_targets, targets], dim=0)
-        elif mode == "test":
-            pass
-        return DummyDataset(features, targets)
-
-    def _generate_by_oversampling(self, n_per_class):
-        features = self._means[0 : self._known_classes]  # e.g: [[0,0],[1,1]]
-        features = features.repeat(n_per_class, 1)  # e.g: [[0,0],[1,1],[0,0],[1,1]]
-        labels = torch.arange(0, self._known_classes)  # e.g: [0,1]
-        labels = labels.repeat(n_per_class)  # e.g: [0,1,0,1]
-        return features, labels
-
-    def _generate_by_noise(self, n_per_class):
-        features = self._means[0 : self._known_classes]  # e.g: [[0,0],[1,1]]
-        stds = self._stds[0 : self._known_classes]  # e.g: [[0,0],[1,1]]
-        features = features.repeat(n_per_class, 1)  # e.g: [[0,0],[1,1],[0,0],[1,1]]
-        stds = stds.repeat(n_per_class, 1)  # e.g: [[0,0],[1,1],[0,0],[1,1]]
-        # sample from normal (Gaussian) distribution
-        features = torch.normal(features, stds)  # e.g: [[0,0],[1,1],[0,0],[1,1]]
-        labels = torch.arange(0, self._known_classes)  # e.g: [0,1]
-        labels = labels.repeat(n_per_class)  # e.g: [0,1,0,1]
-        return features, labels
-
-    def _generate_by_translation(
-        self, refer_features: torch.Tensor, refer_labels: torch.Tensor, n_per_class: int
-    ):
-        """
-        refer_features: Tensor of [n_refer, feature_dim]
-        refer_labels: Tensor of [n_refer]
-        """
-        refer_means = self._means[refer_labels]  # [n_refer, feature_dim]
-        refer_bias = refer_features - refer_means  # [n_refer, feature_dim]
-        random_idxs = torch.randint(
-            0, refer_bias.shape[0], (self._known_classes * n_per_class,)
-        )  # [n]
-
-        features, labels = self._generate_by_oversampling(
-            n_per_class
-        )  # [n, feature_dim], [n]
-        features += refer_bias[random_idxs]  # [n, feature_dim]
-        return features, labels
-
-    def _compute_ncm_logits(
-        self, features: torch.Tensor, means: torch.Tensor, ncm_type="euclidean"
-    ):
-        """
-        若有重投影，则使用重投影后的特征计算距离
-        """
-        if self.args["reprojector"] is not None:
-            self._network.reprojector.eval()
-            features = features.to(self._device)
-            means = means.to(self._device)
-            with torch.no_grad():
-                features = self._network.reprojector(features)["features"]
-                means = self._network.reprojector(means)["features"]
-
-        return super()._compute_ncm_logits(features, means, ncm_type)
-
     def _save_model(self, filename: str):
         self._network.cpu()
         saved_dict = {
@@ -453,18 +253,3 @@ class Demo(BaseLearner):
         saved_path = os.path.join(self._saved_folder, filename)
         logging.info("Save model to {}".format(saved_path))
         torch.save(saved_dict, saved_path)
-
-
-class DummyDataset(Dataset):
-    def __init__(self, images, labels):
-        assert len(images) == len(labels), "Data size error!"
-        self.images = images
-        self.labels = labels
-
-    def __len__(self):
-        return len(self.images)
-
-    def __getitem__(self, idx):
-        image = self.images[idx]
-        label = self.labels[idx]
-        return idx, image, label

@@ -9,6 +9,10 @@ def main():
     cmd_args = {
         k: v for k, v in cmd_args.items() if v is not None
     }  # Remove None values.
+    # set "null" to None
+    for k, v in cmd_args.items():
+        if v == "null":
+            cmd_args[k] = None
 
     json_args = load_json(cmd_args["config"])
     # Overwrite parameters by command line arguments.
@@ -48,6 +52,7 @@ def setup_parser():
     parser.add_argument("--momentum", type=float)
     parser.add_argument("--generator", type=str)
     parser.add_argument("--feature_augment", type=bool)
+    parser.add_argument("--temperture", type=float)
     parser.add_argument("--dropout", type=float)
 
     return parser

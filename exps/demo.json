@@ -1,5 +1,5 @@
 {
-  "prefix": "FA",
+  "prefix": "base",
   "dataset": "cifar100",
   "shuffle": true,
   "init_cls": 50,
@@ -12,17 +12,11 @@
   "init_epochs": 250,
   "init_lr": 0.1,
   "init_weight_decay": 5e-4,
-  "epochs": 50,
-  "lr": 0.05,
-  "weight_decay": 5e-4,
   "batch_size": 128,
   "num_workers": 8,
   "pin_memory": true,
   "ncm_type": "euclidean",
-  "reprojector": "layernorm",
-  "affine": false,
   "feature_augment": false,
-  "dropout": 0.0,
   "temperture": 1.0,
-  "generator": "noise"
+  "dropout": 0.0
 }
