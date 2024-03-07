@@ -1,0 +1,21 @@
+{
+  "prefix": "FeAug",
+  "dataset": "cifar100",
+  "shuffle": true,
+  "init_cls": 50,
+  "increment": 10,
+  "model_name": "feaug",
+  "convnet_type": "resnet18",
+  "initial_model_path": null,
+  "device": ["0"],
+  "seed": [1993],
+  "init_epochs": 250,
+  "init_lr": 0.1,
+  "init_weight_decay": 5e-4,
+  "batch_size": 128,
+  "num_workers": 8,
+  "pin_memory": true,
+  "ncm_type": "euclidean",
+  "feature_augment": "linear",
+  "temperture": 1.0
+}

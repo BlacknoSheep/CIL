@@ -8,13 +8,17 @@ def get_model(model_name, args):
         from models.ncm import NCM
 
         return NCM(args)
+    elif name == "reprojection":
+        from models.reprojection import Reprojection
+
+        return Reprojection(args)
     elif name == "momentum":
         from models.momentum import Momentum
 
         return Momentum(args)
-    elif name == "demo":
-        from models.demo import Demo
+    elif name == "feaug":
+        from models.feaug import FeAug
 
-        return Demo(args)
+        return FeAug(args)
     else:
         assert 0, "Model {} not available".format(name)

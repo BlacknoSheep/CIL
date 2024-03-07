@@ -51,7 +51,9 @@ def _train(args):
     )
     model = factory.get_model(args["model_name"], args)
 
-    cnn_curve, ncm_curve = {"top1": [], "top5": []}, {"top1": [], "top5": []}
+    cnn_curve = {"top1": [], "top5": []}
+    ncm_curve = {"top1": [], "top5": []}
+    ensemble_curve = {"top1": [], "top5": []}
     for task in range(data_manager.nb_tasks):
         logging.info("All params: {}".format(count_parameters(model._network)))
         logging.info(
@@ -61,6 +63,7 @@ def _train(args):
         accy = model.eval_task(save_result=True)
         cnn_accy = accy.get("cnn_accy", None)
         ncm_accy = accy.get("ncm_accy", None)
+        ensemble_accy = accy.get("ensemble_accy", None)
         model.after_task()
 
         if ncm_accy is not None:
@@ -91,6 +94,21 @@ def _train(args):
             logging.info(
                 "Average Accuracy (CNN): {}\n".format(
                     sum(cnn_curve["top1"]) / len(cnn_curve["top1"])
+                )
+            )
+        if ensemble_accy is not None:
+            logging.info("Ensemble: {}".format(ensemble_accy["grouped"]))
+            ensemble_curve["top1"].append(ensemble_accy["top1"])
+            ensemble_curve["top5"].append(ensemble_accy["top5"])
+            logging.info("Ensemble top1 curve: {}".format(ensemble_curve["top1"]))
+            logging.info("Ensemble top5 curve: {}".format(ensemble_curve["top5"]))
+            print(
+                "Average Accuracy (Ensemble):",
+                sum(ensemble_curve["top1"]) / len(ensemble_curve["top1"]),
+            )
+            logging.info(
+                "Average Accuracy (Ensemble): {}\n".format(
+                    sum(ensemble_curve["top1"]) / len(ensemble_curve["top1"])
                 )
             )
 
