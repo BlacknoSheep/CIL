@@ -1,3 +1,11 @@
+"""
+论文：FRWF 基于特征重投影和权重融合的类增量学习方法（电子学报）
+
+reprojector: ["layernorm", "batchnorm", "l2norm", None], 重投影器，本文使用layernorm
+momentum: [0,1], 更新分类头的动量（即旧权重占比），0.99最优
+generator: ["oversampling", "noise", "translation"], 生成旧类特征的方法，noise和重投影结合最好
+"""
+
 import logging
 import numpy as np
 import torch

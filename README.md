@@ -1,4 +1,4 @@
-# Code for FRWF: A Class-Incremental Learning Method Based on Feature Reprojection and Weight Fusion
+# Code for several CIL Methods
 
 ## Dataset
 
@@ -16,26 +16,43 @@
 ## Run
 
 ```bash
-python main.py --config=exps/momentum.json
+python main.py --config=exps/[CONFIG_FILE].json
 ```
 
-**Hyperparameters**
+### Common Hyperparameters
 
-- `init_cls`: The number of classes in the initial stage.
-- `increment`: The number of classes in each incremental stage.
-- `initial_model_path`: If set, the initial stage will be skipped. Instead, the model will load weights from this path. It will be helpful when only parameters of incremental stages are changed.
-- `ncm_type`: The way to calculate ncm distance.
-  - `"euclidean"` (default)
-  - `"cosine"`
+- `prefix`: `str` The prefix of logs and saved filename.
+- `dataset`: `str`
+  - `"cifar100"`
+  - `"tinyimagenet200"`
 
-- `reprojector`: Whether to use feature reprojection.
-  - `"layernorm"` (default)
-  - `"batchnorm"`
-  - `"l2norm"`
+- `shuffle`: `bool` Whether to shuffle the learning order of classes.
+- `init_cls`: `int` The number of classes in the initial stage.
+- `increment`: `int` The number of classes in each incremental stage.
+- `model_name`: `str` The incremental learning method to run. See `models/` for detail.
+- `convnet_type`: `str` Which backbone to use. See `convs/` and `utils/inc_net.py` for detail.
+- `initial_model_path`: `str | None` If set, the initial stage will be skipped. Instead, the model will load weights from this path. It will be helpful when only parameters of incremental stages are changed.
+- `device`: `list of str` Multi-GPU training is currently unavailable, so please only specify the GPU that you intend to use.
+- `seed`: `list of int`  Train using each seed in the list sequentially. [1993] to reproduce our result.
+- `init_epochs`: `int` Epochs for the initial stage.
+- `init_lr`: `float` Learning rate for the initial stage.
+- `init_weight_decay`: `float` Weight decay for the initial stage.
+- `epochs`: `int` Epochs for the incremental stage.
+- `lr`: `float` Learning rate for the incremental stage.
+- `weight_decay`: `float` Weight decay for the incremental stage.
+- `batch_size`: `int`
+- `num_workers`: `int`
+- `pin_memory`: `bool`
+- `ncm_type`: `str` The way to calculate ncm distance.
+  - `"euclidean"`: euclidean distance
+  - `"cosine"`: cosine similarity
+- `generator`: `str` How to generate the fake feature vectors of old classes.
+  - `"oversampling"`
+  - `"noise"`
+  - `"translation"`: See [FeTrIL](https://github.com/GregoirePetit/FeTrIL).
 
-- `affine`: Whether to use learnable per-element affine parameters in reprojector.
-- `momentum`: Rate of Weight Fusion.
-- `generator`: How to generate the fake feature vectors of old classes. Choose from `oversampling`, `translation`, and `noise`.
+
+**Other parameters can find in `models/[METHOD].py`**
 
 ## Our code references the the following repository:
 

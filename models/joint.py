@@ -1,3 +1,15 @@
+"""
+All known classes are available for training at any time.
+
+Joint-f: 
+    freeze_convnet=True
+
+Upperbound: 
+    freeze_convnet=False, 
+    init_cls=num_all_classes_in_dataset, 
+    increment=0
+"""
+
 import logging
 import numpy as np
 import torch

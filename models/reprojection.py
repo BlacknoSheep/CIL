@@ -1,3 +1,10 @@
+"""
+Use reprojector with fc head
+
+reprojector: ["layernorm", "batchnorm", "l2norm", None], layernorm is the best.
+affine: bool. If True, enable the affine in reprojector. True is better.
+"""
+
 import logging
 import numpy as np
 import torch
