@@ -1,6 +1,7 @@
 import logging
 import numpy as np
 import torch
+import copy
 import os
 from torch import nn
 from tqdm import tqdm
@@ -44,85 +45,46 @@ class MainNet(nn.Module):
         self.head.update_fc(total_classes)
 
 
-class FeatureAugmentor(nn.Module):
-    def __init__(
-        self,
-        feature_dim: int,
-        augment_type: str = "linear",
-        use_relu: bool = True,
-        init_logit_scale: float = np.log(1 / 0.07),  # same as CLIP
-    ):
-        super().__init__()
-        self.feature_dim = feature_dim
-        self.augment_type = augment_type
-        self.use_relu = use_relu
-        self.fc = nn.Linear(feature_dim, feature_dim)
-        self.relu = nn.ReLU(inplace=True)
-        self.logit_scale = nn.Parameter(torch.ones([]) * init_logit_scale)
-
-    def forward(self, x):
-        # 通过m控制噪声强度
-        if self.augment_type == "linear":
-            m = self.fc(x)
-            if self.use_relu:
-                m = self.relu(m)
-        elif self.augment_type == "01":
-            m = 1
-        elif self.augment_type[-1] == "%":
-            m = float(self.augment_type[:-1]) / 100
-        else:
-            raise ValueError("Unknown feature augment type")
-        noise = torch.normal(0, 1, x.shape).to(x.device)
-        x = x + m * noise
-        return {
-            "features": x,
-            "logit_scale": self.logit_scale.exp(),
-        }
-
-
 class CLIPLoss(nn.Module):
-    def __init__(self, label_smoothing: float = 0.0):
+    def __init__(self, label_smoothing: float = 0.0, mse_scale: float = 10.0):
         super().__init__()
         self.label_smoothing = label_smoothing
+        self.mse_scale = mse_scale
 
     def forward(
         self,
         features: torch.Tensor,
-        logit_scale: torch.Tensor,
+        logit_scale: torch.Tensor = None,
         targets: torch.Tensor = None,
     ):
         n = features.shape[0]
         device = features.device
+        # 由于resnet输出的特征向量的值>0，所以余弦相似度的值域为[0,1]
         features = F.normalize(features, p=2, dim=-1)  # [n,d]
-        logits = features @ features.t() * logit_scale  # [n,n]
+        logits = features @ features.t()  # [n,n], cosine similarity, 值域[0,1]
         if targets is None:
+            # 一般的CLIP损失
             labels = torch.arange(n).to(device)  # [n]
-            loss = F.cross_entropy(logits, labels, reduction="mean")
+            loss = F.cross_entropy(logits * logit_scale, labels, reduction="mean")
         else:
+            # 带标签的CLIP损失
             labels = targets == targets.unsqueeze(1)  # [n,n], bool
             labels = labels.float()  # [n,n]
             labels_diag = torch.eye(n).to(device)  # [n,n]
+            # 1 -> 1-label_smoothing, diagonal -> 1
             labels = (
                 labels * (1 - self.label_smoothing) + labels_diag * self.label_smoothing
             )
-            loss = F.binary_cross_entropy_with_logits(logits, labels, reduction="mean")
+            loss = F.mse_loss(logits, labels, reduction="mean") * self.mse_scale
         return loss
 
 
-class FeAug(BaseLearner):
+class Demo(BaseLearner):
     def __init__(self, args):
         super().__init__(args)
         self.args = args
         self._network = MainNet(args)
-        self._FA = None
-        if self.args["feature_augment"]:
-            self._FA = FeatureAugmentor(
-                self._network.feature_dim,
-                augment_type=self.args["feature_augment"],
-                use_relu=True,
-            )
-        self._clip_loss = CLIPLoss(label_smoothing=0.05)
-        self._clip_loss_weight = 0.1  # weight for clip loss
+        self._clip_loss = CLIPLoss(label_smoothing=0.5, mse_scale=10.0)
         self._means: torch.Tensor = None
         self._stds: torch.Tensor = None
 
@@ -192,8 +154,6 @@ class FeAug(BaseLearner):
 
     def _train(self, train_loader, test_loader):
         self._network.to(self._device, non_blocking=True)
-        if self._FA is not None:
-            self._FA.to(self._device, non_blocking=True)
         if self._cur_task == 0:
             if self.args["initial_model_path"] is not None:
                 logging.info(
@@ -209,12 +169,8 @@ class FeAug(BaseLearner):
                 )
             else:
                 logging.info("Train from scratch")
-                params = [p for p in self._network.parameters() if p.requires_grad]
-                if self.args["feature_augment"] == "linear":
-                    params += [p for p in self._FA.parameters() if p.requires_grad]
-
                 optimizer = optim.SGD(
-                    params,
+                    filter(lambda p: p.requires_grad, self._network.parameters()),
                     lr=self.args["init_lr"],
                     momentum=0.9,
                     weight_decay=self.args["init_weight_decay"],
@@ -229,8 +185,6 @@ class FeAug(BaseLearner):
                     scheduler,
                     epochs=self.args["init_epochs"],
                 )
-                # 初始化阶段结束，移除特征增强器
-                self._FA = None
 
                 self._save_model("initial_model.pkl")
                 self._network.to(self._device, non_blocking=True)
@@ -257,22 +211,8 @@ class FeAug(BaseLearner):
                 features, logits = out["features"], out["logits"]
                 loss = F.cross_entropy(logits, targets)
                 clip_loss = self._clip_loss(features, out["clip_logit_scale"], targets)
-
-                if self._FA is not None:
-                    out = self._FA(features)
-                    augment_features, FA_logit_scale = (
-                        out["features"],
-                        out["logit_scale"],
-                    )
-                    logits_aug = self._network(augment_features, x_type="feature")[
-                        "logits"
-                    ]
-                    loss += F.cross_entropy(logits_aug * FA_logit_scale, targets)
-                    loss /= 2
-                loss = (
-                    loss * (1 - self._clip_loss_weight)
-                    + clip_loss * self._clip_loss_weight
-                )
+                # clip_loss = self._clip_loss(features, out["clip_logit_scale"])
+                loss = loss + clip_loss
 
                 optimizer.zero_grad()
                 loss.backward()
@@ -309,12 +249,13 @@ class FeAug(BaseLearner):
             logging.info(info)
 
     def eval_task(self, save_result=False):
-        # evaluate NCM
-        y_pred, y_true = self._eval_ncm(
-            self.test_loader, ncm_type=self.args["ncm_type"]
-        )
-        ncm_accy = self._evaluate(y_pred, y_true)
+        ncm_accy = None
+        ncm_cosine_accy = None
+        pred_dict = self._eval_ncm(self.test_loader)
 
+        # euclidean
+        y_pred, y_true = pred_dict["y_pred"], pred_dict["y_true"]
+        ncm_accy = self._evaluate(y_pred, y_true)
         if save_result:
             _pred = y_pred.T[0]
             _pred_path = os.path.join(self._saved_folder, "ncm_pred.npy")
@@ -322,7 +263,23 @@ class FeAug(BaseLearner):
             np.save(_pred_path, _pred)
             np.save(_target_path, y_true)
 
-        return {"ncm_accy": ncm_accy}
+        # cosine
+        y_pred, y_true = (
+            pred_dict["y_pred_cosine"],
+            pred_dict["y_true_cosine"],
+        )
+        ncm_cosine_accy = self._evaluate(y_pred, y_true)
+        if save_result:
+            _pred = y_pred.T[0]
+            _pred_path = os.path.join(self._saved_folder, "ncm_cosine_pred.npy")
+            _target_path = os.path.join(self._saved_folder, "ncm_cosine_target.npy")
+            np.save(_pred_path, _pred)
+            np.save(_target_path, y_true)
+
+        return {
+            "ncm_accy": ncm_accy,
+            "ncm_cosine_accy": ncm_cosine_accy,
+        }
 
     def _save_model(self, filename: str):
         self._network.cpu()

@@ -1,8 +1,9 @@
 """
-论文：FRWF 基于特征重投影和权重融合的类增量学习方法（电子学报）
+动量更新分类头
 
-reprojector: ["layernorm", "batchnorm", "l2norm", None], 重投影器，本文使用layernorm
-momentum: [0,1], 更新分类头的动量（即旧权重占比），0.99最优
+reprojector: ["layernorm", "batchnorm", "l2norm", None], layernorm is the best.
+affine: bool. If True, enable the affine in reprojector. True is better.
+momentum: [0,1]
 generator: ["oversampling", "noise", "translation"], 生成旧类特征的方法，noise和重投影结合最好
 """
 
@@ -294,10 +295,12 @@ class Momentum(BaseLearner):
                 total_new += torch.sum(new_mask).item()
 
                 # momentum update after each step
-                # self._momentum_update_head(old_head, momentum=self.args["momentum"])
+                # if self._cur_task > 1:  # 第一次增量不进行动量更新
+                #     self._momentum_update_head(old_head, momentum=self.args["momentum"])
 
             # momentum update after each epoch
-            self._momentum_update_head(old_head, momentum=self.args["momentum"])
+            if self._cur_task > 1:  # 第一次增量不进行动量更新
+                self._momentum_update_head(old_head, momentum=self.args["momentum"])
 
             scheduler.step()
             train_acc = np.around(correct * 100 / total, decimals=2)
@@ -328,7 +331,8 @@ class Momentum(BaseLearner):
             logging.info(info)
 
         # momentum update after each task
-        # self._momentum_update_head(old_head, momentum=self.args["momentum"])
+        # if self._cur_task > 1:  # 第一次增量不进行动量更新
+        #     self._momentum_update_head(old_head, momentum=self.args["momentum"])
 
     def _momentum_update_head(self, old_head, momentum):
         if momentum == 0:
@@ -428,6 +432,65 @@ class Momentum(BaseLearner):
         )  # [n, feature_dim], [n]
         features += refer_bias[random_idxs]  # [n, feature_dim]
         return features, labels
+
+    def eval_task(self, save_result=False):
+        res = super().eval_task(save_result)
+
+        # evaluate ensemble (linear+euclidean)
+        ensemble_accy = None
+        y_pred, y_true = self._eval_ensemble(self.test_loader, ncm_type="euclidean")
+        ensemble_accy = self._evaluate(y_pred, y_true)
+        res["ensemble_accy"] = ensemble_accy
+        if save_result:
+            _pred = y_pred.T[0]
+            _pred_path = os.path.join(self._saved_folder, "ensemble_pred.npy")
+            _target_path = os.path.join(self._saved_folder, "ensemble_target.npy")
+            np.save(_pred_path, _pred)
+            np.save(_target_path, y_true)
+
+        # evaluate ensemble (linear+cosine)
+        ensemble_cosine_accy = None
+        y_pred, y_true = self._eval_ensemble(self.test_loader, ncm_type="cosine")
+        ensemble_cosine_accy = self._evaluate(y_pred, y_true)
+        res["ensemble_cosine_accy"] = ensemble_cosine_accy
+        if save_result:
+            _pred = y_pred.T[0]
+            _pred_path = os.path.join(self._saved_folder, "ensemble_cosine_pred.npy")
+            _target_path = os.path.join(
+                self._saved_folder, "ensemble_cosine_target.npy"
+            )
+            np.save(_pred_path, _pred)
+            np.save(_target_path, y_true)
+
+        return res
+
+    def _eval_ensemble(self, loader, ncm_type="euclidean"):
+        self._network.eval()
+        y_pred, y_true = [], []
+        for _, inputs, targets in loader:
+            inputs = inputs.to(self._device)
+            with torch.no_grad():
+                out = self._network(inputs)
+                features, fc_logits = out["features"], out["logits"]
+            ncm_logits = self._compute_ncm_logits(
+                features,
+                self._means.to(self._device),
+                ncm_type=ncm_type,
+            )
+            # softmax
+            fc_logits = F.softmax(fc_logits, dim=1)
+            ncm_logits = F.softmax(ncm_logits, dim=1)
+            logits = fc_logits + ncm_logits
+
+            predicts = torch.topk(
+                logits, k=self.topk, dim=1, largest=True, sorted=True
+            )[
+                1
+            ]  # [bs, topk]
+            y_pred.append(predicts.cpu().numpy())
+            y_true.append(targets.numpy())
+
+        return np.concatenate(y_pred), np.concatenate(y_true)  # [N, topk]
 
     def _compute_ncm_logits(
         self, features: torch.Tensor, means: torch.Tensor, ncm_type="euclidean"

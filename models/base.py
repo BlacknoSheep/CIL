@@ -7,9 +7,6 @@ from torch.utils.data import DataLoader
 from utils.toolkit import accuracy
 import os
 
-EPSILON = 1e-8
-batch_size = 64
-
 
 class MainNet(nn.Module):
     def __init__(self, args, pretrained=False):
@@ -144,27 +141,27 @@ class BaseLearner(object):
         return np.around(correct * 100 / total, decimals=2)
 
     def eval_task(self, save_result=False):
-        cnn_accy = None
+        linear_accy = None
         ncm_accy = None
+        ncm_cosine_accy = None
 
-        # evaluate CNN
-        y_pred, y_true = self._eval_cnn(self.test_loader)
-        cnn_accy = self._evaluate(y_pred, y_true)
-
+        # evaluate linear
+        y_pred, y_true = self._eval_linear(self.test_loader)
+        linear_accy = self._evaluate(y_pred, y_true)
         if save_result:
             _pred = y_pred.T[0]
-            _pred_path = os.path.join(self._saved_folder, "cnn_pred.npy")
-            _target_path = os.path.join(self._saved_folder, "cnn_target.npy")
+            _pred_path = os.path.join(self._saved_folder, "linear_pred.npy")
+            _target_path = os.path.join(self._saved_folder, "linear_target.npy")
             np.save(_pred_path, _pred)
             np.save(_target_path, y_true)
 
         # evaluate NCM
         if self._means is not None:
-            y_pred, y_true = self._eval_ncm(
-                self.test_loader, ncm_type=self.args["ncm_type"]
-            )
-            ncm_accy = self._evaluate(y_pred, y_true)
+            pred_dict = self._eval_ncm(self.test_loader)
 
+            # euclidean
+            y_pred, y_true = pred_dict["y_pred"], pred_dict["y_true"]
+            ncm_accy = self._evaluate(y_pred, y_true)
             if save_result:
                 _pred = y_pred.T[0]
                 _pred_path = os.path.join(self._saved_folder, "ncm_pred.npy")
@@ -172,7 +169,24 @@ class BaseLearner(object):
                 np.save(_pred_path, _pred)
                 np.save(_target_path, y_true)
 
-        return {"cnn_accy": cnn_accy, "ncm_accy": ncm_accy}
+            # cosine
+            y_pred, y_true = (
+                pred_dict["y_pred_cosine"],
+                pred_dict["y_true_cosine"],
+            )
+            ncm_cosine_accy = self._evaluate(y_pred, y_true)
+            if save_result:
+                _pred = y_pred.T[0]
+                _pred_path = os.path.join(self._saved_folder, "ncm_cosine_pred.npy")
+                _target_path = os.path.join(self._saved_folder, "ncm_cosine_target.npy")
+                np.save(_pred_path, _pred)
+                np.save(_target_path, y_true)
+
+        return {
+            "linear_accy": linear_accy,
+            "ncm_accy": ncm_accy,
+            "ncm_cosine_accy": ncm_cosine_accy,
+        }
 
     def _evaluate(self, y_pred, y_true):
         """
@@ -189,7 +203,7 @@ class BaseLearner(object):
 
         return ret
 
-    def _eval_cnn(self, loader):
+    def _eval_linear(self, loader):
         self._network.eval()
         y_pred, y_true = [], []
         for _, inputs, targets in loader:
@@ -206,19 +220,21 @@ class BaseLearner(object):
 
         return np.concatenate(y_pred), np.concatenate(y_true)  # [N, topk]
 
-    def _eval_ncm(self, loader, ncm_type="euclidean"):
+    def _eval_ncm(self, loader):
         self._network.eval()
         y_pred, y_true = [], []
+        y_pred_cosine, y_true_cosine = [], []
         for _, inputs, targets in loader:
             inputs = inputs.to(self._device)
             with torch.no_grad():
                 features = self._network(inputs)["features"]
+
+            # euclidean
             logits = self._compute_ncm_logits(
                 features,
                 self._means.to(self._device),
-                ncm_type=ncm_type,
+                ncm_type="euclidean",
             )
-
             predicts = torch.topk(
                 logits, k=self.topk, dim=1, largest=True, sorted=True
             )[
@@ -227,7 +243,26 @@ class BaseLearner(object):
             y_pred.append(predicts.cpu().numpy())
             y_true.append(targets.numpy())
 
-        return np.concatenate(y_pred), np.concatenate(y_true)  # [N, topk]
+            # cosine
+            logits = self._compute_ncm_logits(
+                features,
+                self._means.to(self._device),
+                ncm_type="cosine",
+            )
+            predicts = torch.topk(
+                logits, k=self.topk, dim=1, largest=True, sorted=True
+            )[
+                1
+            ]  # [bs, topk]
+            y_pred_cosine.append(predicts.cpu().numpy())
+            y_true_cosine.append(targets.numpy())
+
+        return {
+            "y_pred": np.concatenate(y_pred),
+            "y_true": np.concatenate(y_true),
+            "y_pred_cosine": np.concatenate(y_pred_cosine),
+            "y_true_cosine": np.concatenate(y_true_cosine),
+        }
 
     def _compute_ncm_logits(
         self, features: torch.Tensor, means: torch.Tensor, ncm_type="euclidean"

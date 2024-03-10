@@ -211,12 +211,13 @@ class NCM(BaseLearner):
             logging.info(info)
 
     def eval_task(self, save_result=False):
-        # evaluate NCM
-        y_pred, y_true = self._eval_ncm(
-            self.test_loader, ncm_type=self.args["ncm_type"]
-        )
-        ncm_accy = self._evaluate(y_pred, y_true)
+        ncm_accy = None
+        ncm_cosine_accy = None
+        pred_dict = self._eval_ncm(self.test_loader)
 
+        # euclidean
+        y_pred, y_true = pred_dict["y_pred"], pred_dict["y_true"]
+        ncm_accy = self._evaluate(y_pred, y_true)
         if save_result:
             _pred = y_pred.T[0]
             _pred_path = os.path.join(self._saved_folder, "ncm_pred.npy")
@@ -224,7 +225,23 @@ class NCM(BaseLearner):
             np.save(_pred_path, _pred)
             np.save(_target_path, y_true)
 
-        return {"ncm_accy": ncm_accy}
+        # cosine
+        y_pred, y_true = (
+            pred_dict["y_pred_cosine"],
+            pred_dict["y_true_cosine"],
+        )
+        ncm_cosine_accy = self._evaluate(y_pred, y_true)
+        if save_result:
+            _pred = y_pred.T[0]
+            _pred_path = os.path.join(self._saved_folder, "ncm_cosine_pred.npy")
+            _target_path = os.path.join(self._saved_folder, "ncm_cosine_target.npy")
+            np.save(_pred_path, _pred)
+            np.save(_target_path, y_true)
+
+        return {
+            "ncm_accy": ncm_accy,
+            "ncm_cosine_accy": ncm_cosine_accy,
+        }
 
     def _compute_ncm_logits(
         self, features: torch.Tensor, means: torch.Tensor, ncm_type="euclidean"

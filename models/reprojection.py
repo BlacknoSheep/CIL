@@ -3,6 +3,7 @@ Use reprojector with fc head
 
 reprojector: ["layernorm", "batchnorm", "l2norm", None], layernorm is the best.
 affine: bool. If True, enable the affine in reprojector. True is better.
+generator: ["oversampling", "noise", "translation"], 生成旧类特征的方法，noise和重投影结合最好
 """
 
 import logging
@@ -392,40 +393,13 @@ class Reprojection(BaseLearner):
         return features, labels
 
     def eval_task(self, save_result=False):
-        cnn_accy = None
-        ncm_accy = None
+        res = super().eval_task(save_result)
+
+        # evaluate ensemble (linear+euclidean)
         ensemble_accy = None
-
-        # evaluate CNN
-        y_pred, y_true = self._eval_cnn(self.test_loader)
-        cnn_accy = self._evaluate(y_pred, y_true)
-
-        if save_result:
-            _pred = y_pred.T[0]
-            _pred_path = os.path.join(self._saved_folder, "cnn_pred.npy")
-            _target_path = os.path.join(self._saved_folder, "cnn_target.npy")
-            np.save(_pred_path, _pred)
-            np.save(_target_path, y_true)
-
-        # evaluate NCM
-        y_pred, y_true = self._eval_ncm(
-            self.test_loader, ncm_type=self.args["ncm_type"]
-        )
-        ncm_accy = self._evaluate(y_pred, y_true)
-
-        if save_result:
-            _pred = y_pred.T[0]
-            _pred_path = os.path.join(self._saved_folder, "ncm_pred.npy")
-            _target_path = os.path.join(self._saved_folder, "ncm_target.npy")
-            np.save(_pred_path, _pred)
-            np.save(_target_path, y_true)
-
-        # evaluate ensemble
-        y_pred, y_true = self._eval_ensemble(
-            self.test_loader, ncm_type=self.args["ncm_type"]
-        )
+        y_pred, y_true = self._eval_ensemble(self.test_loader, ncm_type="euclidean")
         ensemble_accy = self._evaluate(y_pred, y_true)
-
+        res["ensemble_accy"] = ensemble_accy
         if save_result:
             _pred = y_pred.T[0]
             _pred_path = os.path.join(self._saved_folder, "ensemble_pred.npy")
@@ -433,11 +407,21 @@ class Reprojection(BaseLearner):
             np.save(_pred_path, _pred)
             np.save(_target_path, y_true)
 
-        return {
-            "cnn_accy": cnn_accy,
-            "ncm_accy": ncm_accy,
-            "ensemble_accy": ensemble_accy,
-        }
+        # evaluate ensemble (linear+cosine)
+        ensemble_cosine_accy = None
+        y_pred, y_true = self._eval_ensemble(self.test_loader, ncm_type="cosine")
+        ensemble_cosine_accy = self._evaluate(y_pred, y_true)
+        res["ensemble_cosine_accy"] = ensemble_cosine_accy
+        if save_result:
+            _pred = y_pred.T[0]
+            _pred_path = os.path.join(self._saved_folder, "ensemble_cosine_pred.npy")
+            _target_path = os.path.join(
+                self._saved_folder, "ensemble_cosine_target.npy"
+            )
+            np.save(_pred_path, _pred)
+            np.save(_target_path, y_true)
+
+        return res
 
     def _eval_ensemble(self, loader, ncm_type="euclidean"):
         self._network.eval()

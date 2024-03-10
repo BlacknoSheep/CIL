@@ -15,7 +15,6 @@
   "batch_size": 128,
   "num_workers": 8,
   "pin_memory": true,
-  "ncm_type": "euclidean",
   "reprojector": null,
   "affine": false
 }

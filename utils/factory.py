@@ -16,9 +16,9 @@ def get_model(model_name, args):
         from models.momentum import Momentum
 
         return Momentum(args)
-    elif name == "feaug":
-        from models.feaug import FeAug
+    elif name == "demo":
+        from models.demo import Demo
 
-        return FeAug(args)
+        return Demo(args)
     else:
         assert 0, "Model {} not available".format(name)

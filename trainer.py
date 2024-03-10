@@ -51,9 +51,11 @@ def _train(args):
     )
     model = factory.get_model(args["model_name"], args)
 
-    cnn_curve = {"top1": [], "top5": []}
     ncm_curve = {"top1": [], "top5": []}
+    ncm_cosine_curve = {"top1": [], "top5": []}
+    linear_curve = {"top1": [], "top5": []}
     ensemble_curve = {"top1": [], "top5": []}
+    ensemble_cosine_curve = {"top1": [], "top5": []}
     for task in range(data_manager.nb_tasks):
         logging.info("All params: {}".format(count_parameters(model._network)))
         logging.info(
@@ -61,54 +63,100 @@ def _train(args):
         )
         model.incremental_train(data_manager)
         accy = model.eval_task(save_result=True)
-        cnn_accy = accy.get("cnn_accy", None)
-        ncm_accy = accy.get("ncm_accy", None)
-        ensemble_accy = accy.get("ensemble_accy", None)
         model.after_task()
 
+        # ncm_euclidean
+        ncm_accy = accy.get("ncm_accy", None)
         if ncm_accy is not None:
-            logging.info("NCM: {}".format(ncm_accy["grouped"]))
+            logging.info("ncm: {}".format(ncm_accy["grouped"]))
             ncm_curve["top1"].append(ncm_accy["top1"])
             ncm_curve["top5"].append(ncm_accy["top5"])
-            logging.info("NCM top1 curve: {}".format(ncm_curve["top1"]))
-            logging.info("NCM top5 curve: {}".format(ncm_curve["top5"]))
+            logging.info("ncm top1 curve: {}".format(ncm_curve["top1"]))
+            logging.info("ncm top5 curve: {}".format(ncm_curve["top5"]))
             print(
-                "Average Accuracy (NCM):",
+                "Average Accuracy (ncm):",
                 sum(ncm_curve["top1"]) / len(ncm_curve["top1"]),
             )
             logging.info(
-                "Average Accuracy (NCM): {}\n".format(
+                "Average Accuracy (ncm): {}\n".format(
                     sum(ncm_curve["top1"]) / len(ncm_curve["top1"])
                 )
             )
-        if cnn_accy is not None:
-            logging.info("CNN: {}".format(cnn_accy["grouped"]))
-            cnn_curve["top1"].append(cnn_accy["top1"])
-            cnn_curve["top5"].append(cnn_accy["top5"])
-            logging.info("CNN top1 curve: {}".format(cnn_curve["top1"]))
-            logging.info("CNN top5 curve: {}".format(cnn_curve["top5"]))
+
+        # ncm_cosine
+        ncm_cosine_accy = accy.get("ncm_cosine_accy", None)
+        if ncm_cosine_accy is not None:
+            logging.info("ncm_cosine: {}".format(ncm_cosine_accy["grouped"]))
+            ncm_cosine_curve["top1"].append(ncm_cosine_accy["top1"])
+            ncm_cosine_curve["top5"].append(ncm_cosine_accy["top5"])
+            logging.info("ncm_cosine top1 curve: {}".format(ncm_cosine_curve["top1"]))
+            logging.info("ncm_cosine top5 curve: {}".format(ncm_cosine_curve["top5"]))
             print(
-                "Average Accuracy (CNN):",
-                sum(cnn_curve["top1"]) / len(cnn_curve["top1"]),
+                "Average Accuracy (ncm_cosine):",
+                sum(ncm_cosine_curve["top1"]) / len(ncm_cosine_curve["top1"]),
             )
             logging.info(
-                "Average Accuracy (CNN): {}\n".format(
-                    sum(cnn_curve["top1"]) / len(cnn_curve["top1"])
+                "Average Accuracy (ncm_cosine): {}\n".format(
+                    sum(ncm_cosine_curve["top1"]) / len(ncm_cosine_curve["top1"])
                 )
             )
+
+        # linear
+        linear_accy = accy.get("linear_accy", None)
+        if linear_accy is not None:
+            logging.info("linear: {}".format(linear_accy["grouped"]))
+            linear_curve["top1"].append(linear_accy["top1"])
+            linear_curve["top5"].append(linear_accy["top5"])
+            logging.info("linear top1 curve: {}".format(linear_curve["top1"]))
+            logging.info("linear top5 curve: {}".format(linear_curve["top5"]))
+            print(
+                "Average Accuracy (linear):",
+                sum(linear_curve["top1"]) / len(linear_curve["top1"]),
+            )
+            logging.info(
+                "Average Accuracy (linear): {}\n".format(
+                    sum(linear_curve["top1"]) / len(linear_curve["top1"])
+                )
+            )
+
+        # ensemble (linear+euclidean)
+        ensemble_accy = accy.get("ensemble_accy", None)
         if ensemble_accy is not None:
-            logging.info("Ensemble: {}".format(ensemble_accy["grouped"]))
+            logging.info("ensemble: {}".format(ensemble_accy["grouped"]))
             ensemble_curve["top1"].append(ensemble_accy["top1"])
             ensemble_curve["top5"].append(ensemble_accy["top5"])
-            logging.info("Ensemble top1 curve: {}".format(ensemble_curve["top1"]))
-            logging.info("Ensemble top5 curve: {}".format(ensemble_curve["top5"]))
+            logging.info("ensemble top1 curve: {}".format(ensemble_curve["top1"]))
+            logging.info("ensemble top5 curve: {}".format(ensemble_curve["top5"]))
             print(
-                "Average Accuracy (Ensemble):",
+                "Average Accuracy (ensemble):",
                 sum(ensemble_curve["top1"]) / len(ensemble_curve["top1"]),
             )
             logging.info(
-                "Average Accuracy (Ensemble): {}\n".format(
+                "Average Accuracy (ensemble): {}\n".format(
                     sum(ensemble_curve["top1"]) / len(ensemble_curve["top1"])
+                )
+            )
+
+        # ensemble_cosine (linear+cosine)
+        ensemble_cosine_accy = accy.get("ensemble_cosine_accy", None)
+        if ensemble_cosine_accy is not None:
+            logging.info("ensemble_cosine: {}".format(ensemble_cosine_accy["grouped"]))
+            ensemble_cosine_curve["top1"].append(ensemble_cosine_accy["top1"])
+            ensemble_cosine_curve["top5"].append(ensemble_cosine_accy["top5"])
+            logging.info(
+                "ensemble_cosine top1 curve: {}".format(ensemble_cosine_curve["top1"])
+            )
+            logging.info(
+                "ensemble_cosine top5 curve: {}".format(ensemble_cosine_curve["top5"])
+            )
+            print(
+                "Average Accuracy (ensemble_cosine):",
+                sum(ensemble_cosine_curve["top1"]) / len(ensemble_cosine_curve["top1"]),
+            )
+            logging.info(
+                "Average Accuracy (ensemble_cosine): {}\n".format(
+                    sum(ensemble_cosine_curve["top1"])
+                    / len(ensemble_cosine_curve["top1"])
                 )
             )
 

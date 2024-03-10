@@ -46,13 +46,10 @@ def setup_parser():
     parser.add_argument("--model_name", type=str)
     parser.add_argument("--initial_model_path", type=str)
     parser.add_argument("--init_epochs", type=int)
-    parser.add_argument("--ncm_type", type=str)
     parser.add_argument("--reprojector", type=str)
     parser.add_argument("--affine", type=bool)
     parser.add_argument("--momentum", type=float)
     parser.add_argument("--generator", type=str)
-    parser.add_argument("--feature_augment", type=str)
-    parser.add_argument("--temperture", type=float)
 
     return parser
 
