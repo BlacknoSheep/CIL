@@ -1,6 +1,10 @@
 def get_model(model_name, args):
     name = model_name.lower()
-    if name == "joint":
+    if name == "finetune":
+        from models.finetune import Finetune
+
+        return Finetune(args)
+    elif name == "joint":
         from models.joint import Joint
 
         return Joint(args)

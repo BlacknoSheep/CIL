@@ -1,21 +1,22 @@
 """
-simple NCM classifier
+Simply Finetune.
 
-reprojector: ["layernorm", "batchnorm", "l2norm", None], layernorm is the best.
-affine: bool. If True, enable the affine in reprojector. True is better.
-head: ["fc", "mlp"], believe it or not, mlp is much better, even better than most previous methods.
+Finetune-f: 
+    freeze_convnet=True
+
+Finetune: 
+    freeze_convnet=False, 
 """
 
 import logging
 import numpy as np
 import torch
-import os
 from torch import nn
 from tqdm import tqdm
 from torch import optim
 from torch.nn import functional as F
 from torch.utils.data import DataLoader
-from utils.inc_net import get_convnet, Reprojector, FcHead, MLPHead
+from utils.inc_net import get_convnet, FcHead
 from models.base import BaseLearner
 from torchvision import transforms
 
@@ -25,40 +26,21 @@ class MainNet(nn.Module):
         super().__init__()
         self.convnet = get_convnet(args, pretrained)
         self.feature_dim = self.convnet.out_dim
-        self.reprojector = None
-        if args["reprojector"] is not None:
-            self.reprojector = Reprojector(
-                args["reprojector"], self.feature_dim, affine=args["affine"]
-            )
-        if args["head"] == "fc":
-            self.head = FcHead(self.feature_dim, args["init_cls"])
-        elif args["head"] == "mlp":
-            self.head = MLPHead(self.feature_dim, args["init_cls"])
-        else:
-            raise ValueError("Invalid head type")
+        self.head = FcHead(self.feature_dim, args["init_cls"])
 
     def forward(self, x):
-        """
-        !!!: 返回的是重投影前的特征
-        """
-        x = self.convnet(x)["features"]
-        features = x
-        if self.reprojector is not None:
-            x = self.reprojector(x)["features"]
-        x = self.head(x)["logits"]
+        features = self.convnet(x)["features"]
+        x = self.head(features)["logits"]
         return {"features": features, "logits": x}
 
     def update_head(self, total_classes):
         self.head.update_fc(total_classes)
 
 
-class NCM(BaseLearner):
+class Finetune(BaseLearner):
     def __init__(self, args):
         super().__init__(args)
-        self.args = args
         self._network = MainNet(args)
-        self._means: torch.Tensor = None
-        self._stds: torch.Tensor = None
 
     def incremental_train(self, data_manager):
         self.data_manager = data_manager
@@ -74,8 +56,12 @@ class NCM(BaseLearner):
             ]
         elif "imagenet" in dataset_name:
             self.data_manager._train_trsf = [
-                transforms.RandomResizedCrop(224),
+                # transforms.RandomResizedCrop(224, scale=(0.5, 1.0)), # https://github.com/pytorch/examples/issues/355
+                transforms.RandomResizedCrop(
+                    224
+                ),  # The default scale (0.08, 1.0) is better
                 transforms.RandomHorizontalFlip(),
+                # transforms.ColorJitter(brightness=63 / 255), # ColorJitter will slightly lower the initial accuracy
                 transforms.AutoAugment(policy=transforms.AutoAugmentPolicy.IMAGENET),
                 transforms.ToTensor(),
                 transforms.RandomErasing(inplace=True),
@@ -91,6 +77,7 @@ class NCM(BaseLearner):
             "Learning on {}-{}".format(self._known_classes, self._total_classes)
         )
 
+        # train on all seen classes
         train_dataset = data_manager.get_dataset(
             np.arange(self._known_classes, self._total_classes),
             source="train",
@@ -158,13 +145,27 @@ class NCM(BaseLearner):
                 self._network.to(self._device, non_blocking=True)
 
             # Freeze the feature extractor
-            logging.info("Freeze convnet")
-            for param in self._network.convnet.parameters():
-                param.requires_grad = False
-
-            self._compute_means()
+            if self.args["freeze_convnet"]:
+                logging.info("Freeze convnet")
+                for param in self._network.convnet.parameters():
+                    param.requires_grad = False
         else:
-            self._compute_means()
+            optimizer = optim.SGD(
+                filter(lambda p: p.requires_grad, self._network.parameters()),
+                lr=self.args["lr"],
+                momentum=0.9,
+                weight_decay=self.args["weight_decay"],
+            )
+            scheduler = optim.lr_scheduler.CosineAnnealingLR(
+                optimizer=optimizer, T_max=self.args["epochs"]
+            )
+            self._next_train(
+                train_loader,
+                test_loader,
+                optimizer,
+                scheduler,
+                epochs=self.args["epochs"],
+            )
 
     def _init_train(self, train_loader, test_loader, optimizer, scheduler, epochs):
         prog_bar = tqdm(range(epochs))
@@ -212,63 +213,57 @@ class NCM(BaseLearner):
             prog_bar.set_description(info)
             logging.info(info)
 
-    def eval_task(self, save_result=False):
-        ncm_accy = None
-        ncm_cosine_accy = None
-        pred_dict = self._eval_ncm(self.test_loader)
+    def _next_train(self, train_loader, test_loader, optimizer, scheduler, epochs):
+        prog_bar = tqdm(range(epochs))
+        for i in prog_bar:
+            epoch = i + 1
+            self._network.train()
+            if self.args["freeze_convnet"]:
+                self._network.convnet.eval()
+            losses = 0.0
+            correct, total = 0, 0
+            correct_new, total_new = 0, 0
+            for _, inputs, targets in train_loader:
+                inputs, targets = inputs.to(self._device), targets.to(self._device)
+                logits = self._network(inputs)["logits"]
+                loss = F.cross_entropy(logits, targets)
 
-        # euclidean
-        y_pred, y_true = pred_dict["y_pred"], pred_dict["y_true"]
-        ncm_accy = self._evaluate(y_pred, y_true)
-        if save_result:
-            _pred = y_pred.T[0]
-            _pred_path = os.path.join(self._saved_folder, "ncm_pred.npy")
-            _target_path = os.path.join(self._saved_folder, "ncm_target.npy")
-            np.save(_pred_path, _pred)
-            np.save(_target_path, y_true)
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+                losses += loss.item()
 
-        # cosine
-        y_pred, y_true = (
-            pred_dict["y_pred_cosine"],
-            pred_dict["y_true_cosine"],
-        )
-        ncm_cosine_accy = self._evaluate(y_pred, y_true)
-        if save_result:
-            _pred = y_pred.T[0]
-            _pred_path = os.path.join(self._saved_folder, "ncm_cosine_pred.npy")
-            _target_path = os.path.join(self._saved_folder, "ncm_cosine_target.npy")
-            np.save(_pred_path, _pred)
-            np.save(_target_path, y_true)
+                preds = torch.max(logits, dim=1)[1]
+                result = torch.eq(preds, targets)
+                correct += torch.sum(result).item()
+                total += len(targets)
+                # accuracy of new classes
+                new_mask = targets >= self._known_classes
+                correct_new += torch.sum(result[new_mask]).item()
+                total_new += torch.sum(new_mask).item()
 
-        return {
-            "ncm_accy": ncm_accy,
-            "ncm_cosine_accy": ncm_cosine_accy,
-        }
-
-    def _compute_ncm_logits(
-        self, features: torch.Tensor, means: torch.Tensor, ncm_type="euclidean"
-    ):
-        """
-        若有重投影，则使用重投影后的特征计算距离
-        """
-        if self.args["reprojector"] is not None:
-            self._network.reprojector.eval()
-            features = features.to(self._device)
-            means = means.to(self._device)
-            with torch.no_grad():
-                features = self._network.reprojector(features)["features"]
-                means = self._network.reprojector(means)["features"]
-
-        return super()._compute_ncm_logits(features, means, ncm_type)
-
-    def _save_model(self, filename: str):
-        self._network.cpu()
-        saved_dict = {
-            "task_id": self._cur_task,
-            "model_state_dict": self._network.state_dict(),
-            "means": self._means,
-            "stds": self._stds,
-        }
-        saved_path = os.path.join(self._saved_folder, filename)
-        logging.info("Save model to {}".format(saved_path))
-        torch.save(saved_dict, saved_path)
+            scheduler.step()
+            train_acc = np.around(correct * 100 / total, decimals=2)
+            train_acc_new = np.around(correct_new * 100 / total_new, decimals=2)
+            if epoch % 5 == 0:
+                test_acc = self._compute_accuracy(self._network, test_loader)
+                info = "Task {}, Epoch {}/{} => Loss {:.3f}, Train_accy {:.2f}, Train_accy_new {:.2f}, Test_accy {:.2f}".format(
+                    self._cur_task,
+                    epoch,
+                    epochs,
+                    losses / len(train_loader),
+                    train_acc,
+                    train_acc_new,
+                    test_acc,
+                )
+            else:
+                info = "Task {}, Epoch {}/{} => Loss {:.3f}, Train_accy {:.2f}, Train_accy_new {:.2f}".format(
+                    self._cur_task,
+                    epoch,
+                    epochs,
+                    losses / len(train_loader),
+                    train_acc,
+                    train_acc_new,
+                )
+            prog_bar.set_description(info)
+            logging.info(info)

@@ -70,12 +70,8 @@ class Reprojection(BaseLearner):
             ]
         elif "imagenet" in dataset_name:
             self.data_manager._train_trsf = [
-                # transforms.RandomResizedCrop(224, scale=(0.5, 1.0)), # https://github.com/pytorch/examples/issues/355
-                transforms.RandomResizedCrop(
-                    224
-                ),  # The default scale (0.08, 1.0) is better for incremental learning
+                transforms.RandomResizedCrop(224),
                 transforms.RandomHorizontalFlip(),
-                # transforms.ColorJitter(brightness=63 / 255), # ColorJitter will lower the accuracy for IL
                 transforms.AutoAugment(policy=transforms.AutoAugmentPolicy.IMAGENET),
                 transforms.ToTensor(),
                 transforms.RandomErasing(inplace=True),

@@ -179,6 +179,41 @@ class MLPHead(nn.Module):
         self.fc = fc
 
 
+class MLP2Head(nn.Module):
+    def __init__(self, in_dim=512, out_dim=10, hidden_dim=None):
+        super().__init__()
+        self.in_dim = in_dim
+        self.out_dim = out_dim
+        self.hidden_dim = hidden_dim or in_dim
+        self.layer = nn.Sequential(
+            nn.Linear(self.in_dim, self.hidden_dim),
+            nn.BatchNorm1d(self.hidden_dim),
+            nn.ReLU(),
+            nn.Linear(self.hidden_dim, self.in_dim),
+            nn.BatchNorm1d(self.in_dim),
+            nn.ReLU(),
+        )
+
+        self.fc = nn.Linear(self.in_dim, self.out_dim)
+
+    def forward(self, x):
+        x = self.layer(x)
+        x = self.fc(x)
+        return {"logits": x}
+
+    def update_fc(self, out_dim):
+        self.out_dim = out_dim
+        fc = nn.Linear(self.in_dim, self.out_dim)
+        if self.fc is not None:
+            old_out_dim = self.fc.out_features
+            weight = copy.deepcopy(self.fc.weight.data)
+            bias = copy.deepcopy(self.fc.bias.data)
+            fc.weight.data[:old_out_dim] = weight
+            fc.bias.data[:old_out_dim] = bias
+        del self.fc
+        self.fc = fc
+
+
 class FeatureGenerator(nn.Module):
     def __init__(self, in_dim=512, radius=0.5):
         super().__init__()

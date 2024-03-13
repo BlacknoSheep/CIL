@@ -49,7 +49,9 @@ def setup_parser():
     parser.add_argument("--reprojector", type=str)
     parser.add_argument("--affine", type=bool)
     parser.add_argument("--momentum", type=float)
+    parser.add_argument("--enable_momentum_from_task", type=int)
     parser.add_argument("--generator", type=str)
+    parser.add_argument("--head", type=str)
 
     return parser
 

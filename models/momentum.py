@@ -4,6 +4,7 @@
 reprojector: ["layernorm", "batchnorm", "l2norm", None], layernorm is the best.
 affine: bool. If True, enable the affine in reprojector. True is better.
 momentum: [0,1]
+enable_momentum_from_task: int, 第几个任务开始使用动量更新
 generator: ["oversampling", "noise", "translation"], 生成旧类特征的方法，noise和重投影结合最好
 """
 
@@ -72,12 +73,8 @@ class Momentum(BaseLearner):
             ]
         elif "imagenet" in dataset_name:
             self.data_manager._train_trsf = [
-                # transforms.RandomResizedCrop(224, scale=(0.5, 1.0)), # https://github.com/pytorch/examples/issues/355
-                transforms.RandomResizedCrop(
-                    224
-                ),  # The default scale (0.08, 1.0) is better for incremental learning
+                transforms.RandomResizedCrop(224),
                 transforms.RandomHorizontalFlip(),
-                # transforms.ColorJitter(brightness=63 / 255), # ColorJitter will lower the accuracy for IL
                 transforms.AutoAugment(policy=transforms.AutoAugmentPolicy.IMAGENET),
                 transforms.ToTensor(),
                 transforms.RandomErasing(inplace=True),
@@ -295,11 +292,13 @@ class Momentum(BaseLearner):
                 total_new += torch.sum(new_mask).item()
 
                 # momentum update after each step
-                # if self._cur_task > 1:  # 第一次增量不进行动量更新
+                # if self._cur_task >= self.args["enable_momentum_from_task"]:  # 第一次增量不进行动量更新
                 #     self._momentum_update_head(old_head, momentum=self.args["momentum"])
 
             # momentum update after each epoch
-            if self._cur_task > 1:  # 第一次增量不进行动量更新
+            if (
+                self._cur_task >= self.args["enable_momentum_from_task"]
+            ):  # 第一次增量不进行动量更新
                 self._momentum_update_head(old_head, momentum=self.args["momentum"])
 
             scheduler.step()
@@ -331,7 +330,7 @@ class Momentum(BaseLearner):
             logging.info(info)
 
         # momentum update after each task
-        # if self._cur_task > 1:  # 第一次增量不进行动量更新
+        # if self._cur_task >= self.args["enable_momentum_from_task"]:  # 第一次增量不进行动量更新
         #     self._momentum_update_head(old_head, momentum=self.args["momentum"])
 
     def _momentum_update_head(self, old_head, momentum):

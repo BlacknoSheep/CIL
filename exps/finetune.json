@@ -1,10 +1,10 @@
 {
-  "prefix": "ncm",
+  "prefix": "finetune-f",
   "dataset": "cifar100",
   "shuffle": true,
   "init_cls": 50,
   "increment": 10,
-  "model_name": "ncm",
+  "model_name": "finetune",
   "convnet_type": "resnet18",
   "initial_model_path": null,
   "device": ["0"],
@@ -12,10 +12,11 @@
   "init_epochs": 250,
   "init_lr": 0.1,
   "init_weight_decay": 5e-4,
+  "epochs": 50,
+  "lr": 0.05,
+  "weight_decay": 5e-4,
   "batch_size": 128,
   "num_workers": 8,
   "pin_memory": true,
-  "reprojector": null,
-  "affine": false,
-  "head": "fc"
+  "freeze_convnet": true
 }
