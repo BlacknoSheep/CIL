@@ -1,11 +1,15 @@
 """
 动量更新分类头
 
-reprojector: ["layernorm", "batchnorm", "l2norm", None], layernorm is the best.
+reprojector: ["layernorm", "batchnorm", "l2norm", null], layernorm is the best.
 affine: bool. If True, enable the affine in reprojector. True is better.
-momentum: [0,1]
-enable_momentum_from_task: int, 第几个任务开始使用动量更新
-generator: ["oversampling", "noise", "translation"], 生成旧类特征的方法，noise和重投影结合最好
+momentum: [0,1], we recommend 0.99 for updating after each epoch. Updating after each step or each task may need different momentum.
+enable_momentum_from_task: int, use momentum after this task, 2 is the best.
+generator: str.
+    oversampling: generate fake old features by repeating the mean of old classes.
+    noise (best): generate fake old features by adding Gaussian noise to the mean of old classes.
+    translation: See FeTrIL(https://github.com/GregoirePetit/FeTrIL).
+        Generate fake old features by adding the bias between the feature and the mean of old classes.
 """
 
 import logging

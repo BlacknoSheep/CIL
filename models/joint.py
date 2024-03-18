@@ -4,7 +4,7 @@ All known classes are available for training at any time.
 Joint-f: 
     freeze_convnet=True
 
-Joint(upperbound): 
+Joint(upperbound, much slower): 
     freeze_convnet=False
 """
 

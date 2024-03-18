@@ -1,9 +1,13 @@
 """
 Use reprojector with fc head
 
-reprojector: ["layernorm", "batchnorm", "l2norm", None], layernorm is the best.
+reprojector: ["layernorm", "batchnorm", "l2norm", null], layernorm is the best.
 affine: bool. If True, enable the affine in reprojector. True is better.
-generator: ["oversampling", "noise", "translation"], 生成旧类特征的方法，noise和重投影结合最好
+generator: str.
+    oversampling: generate fake old features by repeating the mean of old classes.
+    noise (best): generate fake old features by adding Gaussian noise to the mean of old classes.
+    translation: See FeTrIL(https://github.com/GregoirePetit/FeTrIL).
+        Generate fake old features by adding the bias between the feature and the mean of old classes.
 """
 
 import logging

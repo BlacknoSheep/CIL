@@ -1,9 +1,10 @@
 """
 simple NCM classifier
+The distance between the feature and the class mean will be calculated using the euclidean distance or cosine distance.
 
 reprojector: ["layernorm", "batchnorm", "l2norm", None], layernorm is the best.
 affine: bool. If True, enable the affine in reprojector. True is better.
-head: ["fc", "mlp"], believe it or not, mlp is much better, even better than most previous methods.
+head: ["fc", "mlp"], mlp is much better for cifar100.For TinyImageNet, mlp will lower the intial accuracy, which causes the average accuracy to be lower, but the final accuracy is higher.
 """
 
 import logging

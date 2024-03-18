@@ -4,8 +4,8 @@ Simply Finetune.
 Finetune-f: 
     freeze_convnet=True
 
-Finetune: 
-    freeze_convnet=False, 
+Finetune (much slower): 
+    freeze_convnet=False
 """
 
 import logging

@@ -9,10 +9,16 @@ def main():
     cmd_args = {
         k: v for k, v in cmd_args.items() if v is not None
     }  # Remove None values.
-    # set "null" to None
+    # set "null" to None; "true" to True; "false" to False.
     for k, v in cmd_args.items():
-        if v == "null":
-            cmd_args[k] = None
+        if isinstance(v, str):
+            v = v.strip().lower()
+            if v == "null":
+                cmd_args[k] = None
+            elif v == "true":
+                cmd_args[k] = True
+            elif v == "false":
+                cmd_args[k] = False
 
     json_args = load_json(cmd_args["config"])
     # Overwrite parameters by command line arguments.
@@ -47,11 +53,12 @@ def setup_parser():
     parser.add_argument("--initial_model_path", type=str)
     parser.add_argument("--init_epochs", type=int)
     parser.add_argument("--reprojector", type=str)
-    parser.add_argument("--affine", type=bool)
+    parser.add_argument("--affine", type=str)
     parser.add_argument("--momentum", type=float)
     parser.add_argument("--enable_momentum_from_task", type=int)
     parser.add_argument("--generator", type=str)
     parser.add_argument("--head", type=str)
+    parser.add_argument("--freeze_convnet", type=str)
 
     return parser
 
