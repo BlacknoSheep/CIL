@@ -6,7 +6,9 @@
 
 ## Result
 
-<img align="center" width="80%" src="./assets/result.png">
+<div align="center">
+<img width="80%" src="./assets/result.png">
+<div>
 
 Some experiments are still incomplete because of my poor PC.
 
