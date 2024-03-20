@@ -1,7 +1,16 @@
 <div align="center">
 <h1>Code for CIL Methods</h1>
 </div>
+
 ## Paper may be soon.
+
+## Result
+
+<img align="center" width="80%" src="./assets/result.png">
+
+Some experiments are still incomplete because of my poor PC.
+
+The experimental results show that freezing the feature extractor severely limits the model's capability, making it difficult for further improvement.
 
 ## Dataset
 
@@ -24,11 +33,11 @@ Use a reprojector layer between the feature extractor (Resnet18, etc) and the cl
 
 The feature extractor is frozen after the initialization phase (task 0).
 
-The reprojector can significantly improve accuracy and correct biases of the frozen feature extractor towards old classes, demonstrating greater adaptability.
+The reprojector can significantly improve accuracy and correct biases of the frozen feature extractor towards old classes, demonstrating greater plasticity.
 
 The reprojector will slightly lower the initial accuracy, but the forgetting in increment stage is also less.
 
-However, the accuracy of last task will be higher than others, which means the balance of  stability and plasticity is not good.
+However, the accuracy of classes in last task will be higher than previous classes, which means the balance of  stability and plasticity is still not very good.
 
 ### 2. Ensemble  the logits of fc and NCM
 

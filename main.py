@@ -52,6 +52,7 @@ def setup_parser():
     parser.add_argument("--model_name", type=str)
     parser.add_argument("--initial_model_path", type=str)
     parser.add_argument("--init_epochs", type=int)
+    parser.add_argument("--batch_size", type=int)
     parser.add_argument("--reprojector", type=str)
     parser.add_argument("--affine", type=str)
     parser.add_argument("--momentum", type=float)
