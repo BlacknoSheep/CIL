@@ -7,10 +7,15 @@
 ## Result
 
 <div align="center">
-<img width="80%" src="./assets/result.png">
+<img width="90%" src="./assets/result.png">
 </div>
 
+
 Some experiments are still incomplete because of my poor PC.
+
+We save a prototype and a standard deviation for each class. 
+
+**Do not recommend storing the covariance matrix, as it requires storage space hundreds of times larger than storing just the prototypes, which even exceeds many exemplar-based methods.**
 
 The experimental results show that freezing the feature extractor severely limits the model's capability, making it difficult for further improvement.
 
@@ -18,7 +23,7 @@ The experimental results show that freezing the feature extractor severely limit
 
 1. For CIFAR-100, the dataset needs to be placed in the `./data/CIFAR/` . Otherwise, it will be automatically downloaded by PyTorch.
 
-2. For TinyImageNet, the dataset needs to be placed in the `data/tiny-imagenet-200/` . The dataset can be find in https://www.kaggle.com/datasets/akash2sharma/tiny-imagenet.
+2. For TinyImageNet, the dataset needs to be placed in the `data/tiny-imagenet-200/` . The dataset can be find at https://www.kaggle.com/datasets/akash2sharma/tiny-imagenet.
 
    Code to read TinyImageNet will be like:
 
@@ -26,6 +31,8 @@ The experimental results show that freezing the feature extractor severely limit
    torchvision.datasets.ImageFolder("./data/tiny-imagenet-200/train/")
    torchvision.datasets.ImageFolder("./data/tiny-imagenet-200/val/")
    ```
+
+3. For ImageNet-Subset, the dataset needs to be placed in the `data/imagenet100/` . The dataset can be find at https://www.kaggle.com/datasets/arjunashok33/imagenet-subset-for-inc-learn.
 
 ## Our contributions
 
@@ -53,7 +60,7 @@ This ensemble is zero cost, and achieves higher accuracy and a more balanced res
 
 Momentum updating will only be applied to weights directly associated with the old classes, which means w[0:n_old_classes] and bias[0:n_old_classes].
 
-This will also achieves higher accuracy and a more balanced result. But it's not recommended to use momentum with ensemble, because the result is already balanced.
+This will also achieves higher accuracy and a more balanced result.
 
 ## Run
 
