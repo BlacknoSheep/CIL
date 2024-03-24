@@ -21,6 +21,6 @@
   "reprojector": "layernorm",
   "affine": true,
   "momentum": 0.99,
-  "enable_momentum_from_task": 2,
+  "enable_momentum_from_task": 1,
   "generator": "noise"
 }

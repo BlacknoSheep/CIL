@@ -4,7 +4,7 @@
 reprojector: ["layernorm", "batchnorm", "l2norm", null], layernorm is the best.
 affine: bool. If True, enable the affine in reprojector. True is better.
 momentum: [0,1], we recommend 0.99 for updating after each epoch. Updating after each step or each task may need different momentum.
-enable_momentum_from_task: int, use momentum after this task, 2 is the best.
+enable_momentum_from_task: int, use momentum after this task, recommend 1, but sometimes 2 is better.
 generator: str.
     oversampling: generate fake old features by repeating the mean of old classes.
     noise (best): generate fake old features by adding Gaussian noise to the mean of old classes.
