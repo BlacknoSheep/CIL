@@ -9,13 +9,9 @@
 <div align="center">
 <img width="90%" src="./assets/result.png">
 </div>
+We save a **prototype** and a **standard deviation** for each class. 
 
-
-Some experiments are still incomplete because of my poor PC.
-
-We save a prototype and a standard deviation for each class. 
-
-**Do not recommend storing the covariance matrix, as it requires storage space hundreds of times larger than storing just the prototypes, which even exceeds many exemplar-based methods.**
+**Do not recommend storing the covariance matrix, as it requires storage space hundreds of times larger than storing just the prototype, which even exceeds many exemplar-based methods.**
 
 The experimental results show that freezing the feature extractor severely limits the model's capability, making it difficult for further improvement.
 
@@ -33,6 +29,8 @@ The experimental results show that freezing the feature extractor severely limit
    ```
 
 3. For ImageNet-Subset, the dataset needs to be placed in the `data/imagenet100/` . The dataset can be find at https://www.kaggle.com/datasets/arjunashok33/imagenet-subset-for-inc-learn.
+
+   ! We set `--batch_size=384` to accelerate training.
 
 ## Our contributions
 
@@ -90,7 +88,7 @@ Some parameters can be specified via command-line arguments, overriding the sett
 - `epochs`: `int` Epochs for the incremental stage.
 - `lr`: `float` Learning rate for the incremental stage.
 - `weight_decay`: `float` Weight decay for the incremental stage.
-- `batch_size`: `int`
+- `batch_size`: `int` 128 for CIFAR-100 and TinyImageNet, 384 for ImageNet-Subset.
 - `num_workers`: `int`
 - `pin_memory`: `bool`
 

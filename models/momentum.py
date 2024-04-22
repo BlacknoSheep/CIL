@@ -296,13 +296,11 @@ class Momentum(BaseLearner):
                 total_new += torch.sum(new_mask).item()
 
                 # momentum update after each step
-                # if self._cur_task >= self.args["enable_momentum_from_task"]:  # 第一次增量不进行动量更新
+                # if self._cur_task >= self.args["enable_momentum_from_task"]:
                 #     self._momentum_update_head(old_head, momentum=self.args["momentum"])
 
             # momentum update after each epoch
-            if (
-                self._cur_task >= self.args["enable_momentum_from_task"]
-            ):  # 第一次增量不进行动量更新
+            if self._cur_task >= self.args["enable_momentum_from_task"]:
                 self._momentum_update_head(old_head, momentum=self.args["momentum"])
 
             scheduler.step()
@@ -334,7 +332,7 @@ class Momentum(BaseLearner):
             logging.info(info)
 
         # momentum update after each task
-        # if self._cur_task >= self.args["enable_momentum_from_task"]:  # 第一次增量不进行动量更新
+        # if self._cur_task >= self.args["enable_momentum_from_task"]:
         #     self._momentum_update_head(old_head, momentum=self.args["momentum"])
 
     def _momentum_update_head(self, old_head, momentum):

@@ -13,7 +13,7 @@ def main():
     for k, v in cmd_args.items():
         if isinstance(v, str):
             v = v.strip().lower()
-            if v == "null":
+            if v == "null" or v == "none":
                 cmd_args[k] = None
             elif v == "true":
                 cmd_args[k] = True
