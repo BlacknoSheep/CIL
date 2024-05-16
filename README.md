@@ -1,8 +1,6 @@
 <div align="center">
-<h1>Code for CIL Methods</h1>
+<h1>Official code for "FRMM: Feature Reprojection for Exemplar-Free Class-Incremental Learning". ICIC2024, oral accepted.</h1>
 </div>
-
-## Paper may be soon.
 
 ## Result
 
@@ -30,7 +28,7 @@ The experimental results show that freezing the feature extractor severely limit
 
 3. For ImageNet-Subset, the dataset needs to be placed in the `data/imagenet100/` . The dataset can be find at https://www.kaggle.com/datasets/arjunashok33/imagenet-subset-for-inc-learn.
 
-   ! We set `--batch_size=384` to accelerate training.
+   ! We set `--batch_size=384` for faster training.
 
 ## Our contributions
 
